@@ -1898,3 +1898,16 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
   transition: all 0.2s ease;
 }
 /* === End sandwich cursor patch === */
+
+/* === Sandwich cursor: menu category buttons only === */
+.menu-chips > button:not(.search-chip),
+.chips.menu-chips > button:not(.search-chip) {
+  cursor: url('/sandwich-cursor.png') 16 16, pointer !important;
+}
+
+.menu-chips > button:not(.search-chip):hover,
+.chips.menu-chips > button:not(.search-chip):hover {
+  transform: translateY(-2px) scale(1.03);
+  transition: transform 0.18s ease;
+}
+/* === End sandwich cursor patch === */
