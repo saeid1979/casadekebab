@@ -566,9 +566,10 @@ function App() {
   const deliveryDistance = routeInfo?.distanceKm || straightDistance;
   const deliveryDuration = routeInfo?.durationMin || null;
   const deliveryFee = useMemo(() => {
+    if (!cart.length) return 0;
     if (form.delivery_type !== 'delivery') return 0;
     return calculateDynamicDeliveryFee(deliveryDistance, subtotal, settings);
-  }, [form.delivery_type, settings, subtotal, deliveryDistance]);
+  }, [cart.length, form.delivery_type, settings, subtotal, deliveryDistance]);
   const couponDiscount = Number(coupon?.discount || 0);
   const total = Math.max(0, subtotal + deliveryFee - couponDiscount);
   const cartCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
