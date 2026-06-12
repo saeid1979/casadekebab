@@ -887,7 +887,7 @@ function App() {
           <div>{money(Number(item.final_price) * item.quantity)}</div>
           <div className="cart-controls"><button onClick={() => removeCartItem(item.cart_key)}>−</button><span>{item.quantity}</span><button onClick={() => addCartItem(item)}>+</button></div>
         </div>)}
-        <button className="pay blink" disabled={!cart.length} onClick={() => { setCheckoutStep('details'); setCheckoutOpen(true); }}>Proceder al pago <b>{money(total)}</b></button>
+        <button className="pay blink" disabled={!cart.length} onClick={() => { setCheckoutStep('details'); setCheckoutOpen(true); }}>Proceder al pago <b>{money(subtotal)}</b></button>
       </aside>
     </main>
 
