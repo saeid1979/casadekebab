@@ -1874,3 +1874,27 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
   padding: 2px 6px;
   border-radius: 8px;
 }
+
+/* === Casa de Kebab Turco: sandwich cursor patch === */
+.category-chip,
+.category-tab,
+.menu-category-btn,
+.categories-scroll button,
+.category-list button {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Cpath d='M8 13c2-6 7-9 12-9s10 3 12 9H8z' fill='%23e9a323' stroke='%2357291c' stroke-width='2'/%3E%3Cpath d='M7 16h26l-3 5H10z' fill='%2365a844' stroke='%2357291c' stroke-width='2'/%3E%3Cpath d='M9 22h22l-2 5H11z' fill='%23d54432' stroke='%2357291c' stroke-width='2'/%3E%3Cpath d='M8 29h24c0 4-3 7-7 7H15c-4 0-7-3-7-7z' fill='%23e9a323' stroke='%2357291c' stroke-width='2'/%3E%3C/svg%3E") 20 20,
+    pointer;
+}
+
+.category-chip:hover,
+.category-tab:hover,
+.menu-category-btn:hover,
+.categories-scroll button:hover,
+.category-list button:hover {
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: 0 8px 18px rgba(121, 35, 24, 0.18);
+  border-color: #b91c1c;
+  background: #fff7ed;
+  transition: all 0.2s ease;
+}
+/* === End sandwich cursor patch === */
