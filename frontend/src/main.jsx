@@ -457,7 +457,7 @@ function App() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState('details');
-  const [phone, setPhone] = useState(() => getSessionCustomer()?.phone || '+34');
+  const [phone, setPhone] = useState(() => getSessionCustomer()?.phone || '');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [customer, setCustomer] = useState(getSessionCustomer());
@@ -902,7 +902,7 @@ function App() {
     {loginOpen && <Modal onClose={() => setLoginOpen(false)}>
       <h2>Identifícate con tu número de móvil</h2>
       <p>Te enviaremos por SMS un código de verificación y sólo utilizaremos tu número para actualizaciones importantes de tu pedido.</p>
-      <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+34" />
+      <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Teléfono" />
       {!codeSent ? <button className="pay" disabled={loading} onClick={sendCode}>Continuar</button> : <>
         <input value={code} onChange={e => setCode(e.target.value)} placeholder="Código" />
         <button className="pay" disabled={loading} onClick={verifyCode}>Verificar</button>
