@@ -431,7 +431,11 @@ function Header({ title = 'Casa de Kebab Turco', subtitle = RESTAURANT_ADDRESS, 
   return <header className="topbar">
     <div className="brand" onClick={() => window.location.href='/'} role="button" tabIndex="0">
       <img src={restaurantLogo} alt="Casa de Kebab Turco" />
-      <div><strong>{title}</strong><span>{subtitle}</span></div>
+      <div className="brand-text">
+        <strong>{title}</strong>
+        <span>{subtitle}</span>
+        <span className="header-phone-line">Teléfono: {RESTAURANT_PHONE_1} · {RESTAURANT_PHONE_2}</span>
+      </div>
     </div>
     <nav>
       {visibleChildren}

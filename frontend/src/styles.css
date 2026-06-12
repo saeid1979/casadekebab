@@ -1911,3 +1911,23 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
   transition: transform 0.18s ease;
 }
 /* === End sandwich cursor patch === */
+
+/* === Header phone numbers patch === */
+.brand .header-phone-line {
+  display: block;
+  margin-top: 4px;
+  color: #7a1f16;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .brand .header-phone-line {
+    font-size: 11px;
+    white-space: normal;
+    line-height: 1.25;
+  }
+}
+/* === End header phone numbers patch === */
