@@ -12,7 +12,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment
 from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer
-from .notifications import send_telegram_message, build_order_message
+from .notifications import send_telegram_message, build_order_message, send_customer_order_sms
 
 
 ADMIN_TOKEN_SALT = 'casa-de-kebab-admin-v1'
@@ -201,8 +201,15 @@ def create_order(request):
         send_telegram_message(build_order_message(order))
     except Exception as exc:
         print(f'Order notification skipped: {exc}')
+    sms_sent = False
+    try:
+        sms_sent = send_customer_order_sms(order)
+    except Exception as exc:
+        print(f'Customer order SMS skipped: {exc}')
+
     payload = OrderSerializer(order).data
     payload['auto_assigned_rider'] = auto_assigned
+    payload['customer_sms_sent'] = sms_sent
     return Response({'success': True, 'order': payload}, status=status.HTTP_201_CREATED)
 
 @api_view(['GET'])

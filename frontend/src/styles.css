@@ -1950,3 +1950,20 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
   }
 }
 /* === End header phone line only === */
+
+/* === Delivery order SMS code notice === */
+.delivery-sms-code-note {
+  margin: 4px 0 14px;
+  padding: 12px 14px;
+  border: 1px solid #b7dfc0;
+  border-radius: 12px;
+  background: #f1fbf3;
+  color: #245b31;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.delivery-sms-code-note b {
+  color: #173f21;
+}
+/* === End delivery order SMS code notice === */

@@ -781,7 +781,11 @@ function App() {
         window.location.href = `/payment-demo/${orderCode}`;
         return;
       }
-      setMessage(`Pedido confirmado: ${orderCode}. Puedes ver el ticket en /receipt/${orderCode}`);
+      setMessage(
+        form.delivery_type === 'delivery'
+          ? `Pedido confirmado: ${orderCode}. Hemos enviado este código por SMS al teléfono ${phone}.`
+          : `Pedido confirmado: ${orderCode}. Puedes ver el ticket en /receipt/${orderCode}`
+      );
     } catch (err) {
       setMessage('No se pudo registrar el pedido. Revisa que el menú esté cargado en la base de datos.');
     } finally {
@@ -957,6 +961,9 @@ function App() {
         {form.delivery_type === 'collection' && <option value="store">Pagar en tienda</option>}
         <option value="online">Pago online</option>
       </select>
+      {form.delivery_type === 'delivery' && <div className="delivery-sms-code-note">
+        📲 Al confirmar el pedido, recibirás por SMS el código de seguimiento en <b>{phone || 'tu teléfono'}</b>. No necesitas introducir ningún código en este formulario.
+      </div>}
       <button className="pay" disabled={loading || settings?.is_open === false || (form.delivery_type === 'delivery' && !form.address.trim()) || !deliveryAllowed} onClick={placeOrder}>Confirmar pedido <b>{money(total)}</b></button>
     </Modal>}
   </div>;
