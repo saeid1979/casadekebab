@@ -1931,3 +1931,22 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
   }
 }
 /* === End header phone numbers patch === */
+
+/* === Header phone line only === */
+.brand-phone {
+  display: block;
+  margin-top: 3px;
+  color: #7b2d24;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .brand-phone {
+    font-size: 10px;
+    white-space: normal;
+  }
+}
+/* === End header phone line only === */
