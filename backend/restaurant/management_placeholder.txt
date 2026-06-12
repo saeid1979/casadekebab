@@ -1,0 +1,1 @@
+This folder is intentionally simple. Use Django admin to add menu data or create a custom import command later.
