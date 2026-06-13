@@ -1,5 +1,7 @@
 from decimal import Decimal
 from django.db import transaction
+from django.conf import settings
+import requests
 from django.utils import timezone
 from rest_framework import serializers
 from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, OrderChatMessage, OrderReview
@@ -37,6 +39,111 @@ def normalize_salamanca_coordinates(latitude, longitude):
         'delivery_latitude': 'La ubicación seleccionada no corresponde a Salamanca.',
         'delivery_longitude': 'Selecciona una dirección válida de Salamanca desde las sugerencias.'
     })
+
+
+def geocode_salamanca_address(address):
+    """Resolve a Salamanca address server-side for both web and customer app."""
+    query = str(address or '').strip()
+    if not query:
+        return None, None
+
+    api_key = getattr(settings, 'GOOGLE_PLACES_API_KEY', '')
+
+    if api_key:
+        try:
+            autocomplete_response = requests.post(
+                'https://places.googleapis.com/v1/places:autocomplete',
+                json={
+                    'input': query,
+                    'languageCode': 'es',
+                    'regionCode': 'ES',
+                    'includedRegionCodes': ['ES'],
+                    'locationBias': {
+                        'circle': {
+                            'center': {
+                                'latitude': 40.974836942683254,
+                                'longitude': -5.649336331469509,
+                            },
+                            'radius': 12000.0,
+                        }
+                    },
+                },
+                headers={
+                    'Content-Type': 'application/json',
+                    'X-Goog-Api-Key': api_key,
+                    'X-Goog-FieldMask': 'suggestions.placePrediction.placeId',
+                },
+                timeout=8,
+            )
+            if autocomplete_response.status_code < 400:
+                suggestions = autocomplete_response.json().get('suggestions', [])
+                for suggestion in suggestions[:5]:
+                    place_id = (
+                        suggestion.get('placePrediction', {}).get('placeId')
+                    )
+                    if not place_id:
+                        continue
+
+                    details_response = requests.get(
+                        f'https://places.googleapis.com/v1/places/{place_id}',
+                        headers={
+                            'X-Goog-Api-Key': api_key,
+                            'X-Goog-FieldMask': 'location',
+                        },
+                        timeout=8,
+                    )
+                    if details_response.status_code >= 400:
+                        continue
+
+                    location = details_response.json().get('location') or {}
+                    latitude = location.get('latitude')
+                    longitude = location.get('longitude')
+                    if latitude is None or longitude is None:
+                        continue
+
+                    lat = Decimal(str(latitude)).quantize(Decimal('0.0000001'))
+                    lng = Decimal(str(longitude)).quantize(Decimal('0.0000001'))
+
+                    if (
+                        Decimal('40.80') <= lat <= Decimal('41.12')
+                        and Decimal('-5.90') <= lng <= Decimal('-5.35')
+                    ):
+                        return lat, lng
+        except Exception:
+            pass
+
+    # Free fallback so the web order flow is not blocked when Google is unavailable.
+    try:
+        response = requests.get(
+            'https://nominatim.openstreetmap.org/search',
+            params={
+                'q': f'{query}, Salamanca, Castilla y León, España',
+                'format': 'json',
+                'limit': 5,
+                'countrycodes': 'es',
+                'addressdetails': 1,
+                'viewbox': '-5.75,41.04,-5.55,40.90',
+                'bounded': 1,
+            },
+            headers={
+                'User-Agent': 'CasaDeKebabTurco/1.0',
+                'Accept-Language': 'es',
+            },
+            timeout=8,
+        )
+        if response.status_code < 400:
+            for item in response.json():
+                lat = Decimal(str(item.get('lat'))).quantize(Decimal('0.0000001'))
+                lng = Decimal(str(item.get('lon'))).quantize(Decimal('0.0000001'))
+                if (
+                    Decimal('40.80') <= lat <= Decimal('41.12')
+                    and Decimal('-5.90') <= lng <= Decimal('-5.35')
+                ):
+                    return lat, lng
+    except Exception:
+        pass
+
+    return None, None
 
 class MenuOptionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -124,16 +231,26 @@ class CreateOrderSerializer(serializers.Serializer):
         if attrs['delivery_type'] == Order.DELIVERY_DELIVERY:
             if not attrs.get('address'):
                 raise serializers.ValidationError({'address': 'Address is required for delivery orders.'})
-            if attrs.get('delivery_latitude') is None or attrs.get('delivery_longitude') is None:
+
+            latitude = attrs.get('delivery_latitude')
+            longitude = attrs.get('delivery_longitude')
+
+            # Web and customer app may send an address before coordinates are ready.
+            # Resolve it on the server so one client never breaks the other.
+            if latitude is None or longitude is None:
+                latitude, longitude = geocode_salamanca_address(attrs.get('address'))
+
+            if latitude is None or longitude is None:
                 raise serializers.ValidationError({
-                    'address': 'Selecciona una dirección válida de Salamanca desde las sugerencias para guardar su ubicación.'
+                    'address': 'No se encontró una ubicación válida en Salamanca. Selecciona una sugerencia o revisa la dirección.'
                 })
+
             latitude, longitude = normalize_salamanca_coordinates(
-                attrs.get('delivery_latitude'),
-                attrs.get('delivery_longitude'),
+                latitude,
+                longitude,
             )
-            attrs['delivery_latitude'] = latitude
-            attrs['delivery_longitude'] = longitude
+            attrs['delivery_latitude'] = latitude.quantize(Decimal('0.0000001'))
+            attrs['delivery_longitude'] = longitude.quantize(Decimal('0.0000001'))
 
         if not attrs.get('items'):
             raise serializers.ValidationError({'items': 'Order must contain at least one item.'})
