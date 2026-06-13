@@ -479,6 +479,7 @@ function App() {
   const initialCategoryOpenedRef = useRef(false);
   const [menuSearchOpen, setMenuSearchOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
+  const [orderSuccess, setOrderSuccess] = useState(null);
 
   useEffect(() => {
     axios.get(`${API_BASE}/menu/`).then(res => {
@@ -844,7 +845,32 @@ function App() {
         })),
       };
       const res = await axios.post(`${API_BASE}/orders/`, payload);
-      const orderCode = res.data.order.order_code;
+      const apiOrder = res.data?.order || {};
+      const orderCode = apiOrder.order_code;
+      const successOrder = {
+        ...apiOrder,
+        order_code: orderCode,
+        created_at: apiOrder.created_at || new Date().toISOString(),
+        customer_name: apiOrder.customer_name || form.name,
+        customer_phone: apiOrder.customer_phone || phone,
+        delivery_type: apiOrder.delivery_type || form.delivery_type,
+        address: apiOrder.address || form.address,
+        payment_method: apiOrder.payment_method || form.payment_method,
+        payment_status: apiOrder.payment_status || 'pending',
+        subtotal: apiOrder.subtotal ?? subtotal,
+        delivery_fee: apiOrder.delivery_fee ?? deliveryFee,
+        discount: apiOrder.discount ?? couponDiscount,
+        total: apiOrder.total ?? total,
+        note: apiOrder.note || payload.note,
+        items: Array.isArray(apiOrder.items) && apiOrder.items.length
+          ? apiOrder.items
+          : cart.map(item => ({
+              id: item.cart_key,
+              quantity: item.quantity,
+              name_snapshot: item.name_es,
+              total: Number(item.final_price) * item.quantity,
+            })),
+      };
       setCart([]);
       setCheckoutOpen(false);
       if (form.payment_method === 'online') {
@@ -852,7 +878,7 @@ function App() {
         window.location.href = `/payment-demo/${orderCode}`;
         return;
       }
-      window.location.href = `/receipt/${orderCode}`;
+      setOrderSuccess(successOrder);
     } catch (err) {
       setMessage('No se pudo registrar el pedido. Revisa que el menú esté cargado en la base de datos.');
     } finally {
@@ -1029,6 +1055,52 @@ function App() {
         <option value="online">Pago online</option>
       </select>
       <button className="pay" disabled={loading || settings?.is_open === false || (form.delivery_type === 'delivery' && !form.address.trim()) || !deliveryAllowed} onClick={requestCheckoutOtp}>Confirmar pedido <b>{money(total)}</b></button>
+    </Modal>}
+
+    {orderSuccess && <Modal onClose={() => setOrderSuccess(null)} className="order-success-modal">
+      <section className="order-success-sheet">
+        <div className="order-success-icon">✓</div>
+        <h2>Pedido registrado correctamente</h2>
+        <p className="order-success-lead">Gracias por tu pedido en Casa de Kebab Turco.</p>
+
+        <div className="order-success-code">
+          <span>Código de seguimiento</span>
+          <strong>{orderSuccess.order_code}</strong>
+        </div>
+
+        <div className="order-success-meta">
+          <p><span>Fecha y hora</span><b>{new Date(orderSuccess.created_at).toLocaleString('es-ES')}</b></p>
+          <p><span>Cliente</span><b>{orderSuccess.customer_name || 'Sin nombre'}</b></p>
+          <p><span>Teléfono</span><b>{orderSuccess.customer_phone}</b></p>
+          <p><span>Tipo</span><b>{orderSuccess.delivery_type === 'delivery' ? 'Entrega a domicilio' : 'Recoger en tienda'}</b></p>
+          {orderSuccess.address && <p><span>Dirección</span><b>{orderSuccess.address}</b></p>}
+          <p><span>Pago</span><b>{orderSuccess.payment_method} · {orderSuccess.payment_status}</b></p>
+        </div>
+
+        <div className="order-success-items">
+          <h3>Detalle del pedido</h3>
+          {(orderSuccess.items || []).map((item, index) => <div className="order-success-line" key={item.id || index}>
+            <span>{item.quantity} × {item.name_snapshot || item.name_es || item.name || 'Producto'}</span>
+            <b>{money(item.total ?? (Number(item.unit_price || item.price || 0) * Number(item.quantity || 1)))}</b>
+          </div>)}
+        </div>
+
+        <div className="order-success-totals">
+          <p><span>Subtotal</span><b>{money(orderSuccess.subtotal)}</b></p>
+          <p><span>Envío</span><b>{money(orderSuccess.delivery_fee)}</b></p>
+          {Number(orderSuccess.discount || 0) > 0 && <p><span>Descuento</span><b>-{money(orderSuccess.discount)}</b></p>}
+          <p className="order-success-grand"><span>Total</span><b>{money(orderSuccess.total)}</b></p>
+        </div>
+
+        {orderSuccess.note && <p className="order-success-note"><b>Nota:</b> {orderSuccess.note}</p>}
+        <p className="order-success-time">Tu pedido llegará o estará listo en aproximadamente 20 minutos.</p>
+
+        <div className="order-success-actions">
+          <button type="button" className="print-button" onClick={() => window.print()}>Imprimir factura</button>
+          <button type="button" className="mini-action" onClick={() => window.location.href = `/track/${orderSuccess.order_code}`}>Seguir pedido</button>
+          <button type="button" className="mini-action" onClick={() => setOrderSuccess(null)}>Cerrar</button>
+        </div>
+      </section>
     </Modal>}
 
     {checkoutOtpOpen && <Modal onClose={() => {

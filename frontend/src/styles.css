@@ -1967,3 +1967,28 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
   color: #173f21;
 }
 /* === End delivery order SMS code notice === */
+
+
+/* ORDER_SUCCESS_RECEIPT_EXACT_PATCH */
+.order-success-modal{max-width:680px;width:min(94vw,680px);max-height:92vh;overflow:auto}
+.order-success-sheet{padding:8px 4px 4px;color:#242424}
+.order-success-icon{width:68px;height:68px;margin:0 auto 12px;border-radius:50%;display:grid;place-items:center;background:#159447;color:#fff;font-size:38px;font-weight:800;box-shadow:0 8px 24px rgba(21,148,71,.24)}
+.order-success-sheet h2{text-align:center;margin:0 0 6px;font-size:27px}
+.order-success-lead{text-align:center;margin:0 0 18px;color:#666}
+.order-success-code{display:flex;justify-content:space-between;align-items:center;gap:15px;background:#fff4df;border:1px solid #efcf93;border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.order-success-code span{font-size:13px;color:#76551f}.order-success-code strong{font-size:22px;letter-spacing:.8px;color:#a43721}
+.order-success-meta{border:1px solid #eadfce;border-radius:14px;padding:8px 15px;margin-bottom:14px;background:#fff}
+.order-success-meta p,.order-success-totals p{display:flex;justify-content:space-between;gap:18px;margin:0;padding:8px 0;border-bottom:1px dashed #e6ded3}
+.order-success-meta p:last-child,.order-success-totals p:last-child{border-bottom:0}.order-success-meta span,.order-success-totals span{color:#666}.order-success-meta b{text-align:right;overflow-wrap:anywhere}
+.order-success-items{border:1px solid #eadfce;border-radius:14px;padding:12px 15px;margin-bottom:14px;background:#fff}
+.order-success-items h3{margin:0 0 7px}.order-success-line{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px dashed #e6ded3}.order-success-line:last-child{border-bottom:0}
+.order-success-totals{background:#faf6ef;border-radius:14px;padding:8px 15px;margin-bottom:12px}.order-success-grand{font-size:18px;color:#aa2018}.order-success-note{background:#f6f6f6;border-radius:10px;padding:10px 12px}.order-success-time{text-align:center;font-weight:700;color:#14753d}
+.order-success-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:15px}.order-success-actions button{flex:1;min-width:145px}
+@media(max-width:600px){.order-success-code,.order-success-meta p,.order-success-totals p{align-items:flex-start}.order-success-code{flex-direction:column}.order-success-code strong{font-size:19px}.order-success-sheet h2{font-size:23px}}
+@media print{
+  body *{visibility:hidden!important}
+  .order-success-modal,.order-success-modal *{visibility:visible!important}
+  .order-success-modal{position:absolute!important;left:0!important;top:0!important;width:100%!important;max-width:none!important;max-height:none!important;overflow:visible!important;box-shadow:none!important;border:0!important}
+  .order-success-modal .close,.order-success-actions{display:none!important}
+  .overlay{position:absolute!important;background:#fff!important;inset:0!important;display:block!important}
+}
