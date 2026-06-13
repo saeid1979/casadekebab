@@ -699,61 +699,186 @@ def admin_menu_item_image(request, item_id):
 
 
 
+
+@api_view(['GET'])
+def google_place_details(request):
+    place_id = (request.query_params.get('place_id') or '').strip()
+    if not place_id:
+        return Response({'detail': 'place_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    api_key = getattr(settings, 'GOOGLE_PLACES_API_KEY', '')
+    if not api_key:
+        return Response({'detail': 'GOOGLE_PLACES_API_KEY is not configured'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    url = f'https://places.googleapis.com/v1/places/{place_id}'
+    headers = {
+        'X-Goog-Api-Key': api_key,
+        'X-Goog-FieldMask': 'id,formattedAddress,location',
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=8)
+        if response.status_code >= 400:
+            return Response({'detail': response.text[:300]}, status=status.HTTP_400_BAD_REQUEST)
+
+        data = response.json()
+        location = data.get('location') or {}
+        latitude = location.get('latitude')
+        longitude = location.get('longitude')
+        formatted_address = data.get('formattedAddress') or ''
+
+        if latitude is None or longitude is None:
+            return Response({'detail': 'Google Places did not return coordinates.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        latitude = float(latitude)
+        longitude = float(longitude)
+
+        if not (40.80 <= latitude <= 41.12 and -5.90 <= longitude <= -5.35):
+            return Response({'detail': 'La dirección seleccionada está fuera de Salamanca.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            'place_id': place_id,
+            'formatted_address': formatted_address.replace(', Spain', ', España'),
+            'latitude': latitude,
+            'longitude': longitude,
+        })
+    except Exception as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+
 @api_view(['GET'])
 def google_places_autocomplete(request):
-    """Backend proxy for Google Places API (New) autocomplete.
-    Keeps the API key off the frontend and avoids browser/referrer issues during local development.
-    """
+    """Google Places autocomplete enriched with coordinates for the customer app."""
     q = (request.query_params.get('q') or '').strip()
     if len(q) < 1:
         return Response({'predictions': []})
 
     api_key = getattr(settings, 'GOOGLE_PLACES_API_KEY', '')
     if not api_key:
-        return Response({'predictions': [], 'detail': 'GOOGLE_PLACES_API_KEY is not configured on backend.'}, status=status.HTTP_200_OK)
+        return Response(
+            {'predictions': [], 'detail': 'GOOGLE_PLACES_API_KEY is not configured on backend.'},
+            status=status.HTTP_200_OK
+        )
 
-    url = 'https://places.googleapis.com/v1/places:autocomplete'
-    payload = {
+    autocomplete_url = 'https://places.googleapis.com/v1/places:autocomplete'
+    autocomplete_payload = {
         'input': q,
         'languageCode': 'es',
         'regionCode': 'ES',
         'includedRegionCodes': ['ES'],
         'locationBias': {
             'circle': {
-                'center': {'latitude': 40.974836942683254, 'longitude': -5.649336331469509},
+                'center': {
+                    'latitude': 40.974836942683254,
+                    'longitude': -5.649336331469509
+                },
                 'radius': 12000.0,
             }
         },
     }
-    headers = {
+    autocomplete_headers = {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': api_key,
-        'X-Goog-FieldMask': 'suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat',
+        'X-Goog-FieldMask': (
+            'suggestions.placePrediction.placeId,'
+            'suggestions.placePrediction.text,'
+            'suggestions.placePrediction.structuredFormat'
+        ),
     }
+
     try:
-        r = requests.post(url, json=payload, headers=headers, timeout=8)
-        if r.status_code >= 400:
-            return Response({'predictions': [], 'detail': r.text[:300]}, status=status.HTTP_200_OK)
-        data = r.json()
+        response = requests.post(
+            autocomplete_url,
+            json=autocomplete_payload,
+            headers=autocomplete_headers,
+            timeout=8
+        )
+        if response.status_code >= 400:
+            return Response(
+                {'predictions': [], 'detail': response.text[:300]},
+                status=status.HTTP_200_OK
+            )
+        data = response.json()
     except Exception as exc:
-        return Response({'predictions': [], 'detail': str(exc)}, status=status.HTTP_200_OK)
+        return Response(
+            {'predictions': [], 'detail': str(exc)},
+            status=status.HTTP_200_OK
+        )
 
     predictions = []
-    for item in data.get('suggestions', []):
-        p = item.get('placePrediction') or {}
-        text_obj = p.get('text') or {}
-        structured = p.get('structuredFormat') or {}
-        main_text = (structured.get('mainText') or {}).get('text') or text_obj.get('text') or ''
-        secondary_text = (structured.get('secondaryText') or {}).get('text') or ''
-        description = text_obj.get('text') or ', '.join(x for x in [main_text, secondary_text] if x)
-        if not description:
+
+    for item in data.get('suggestions', [])[:8]:
+        prediction = item.get('placePrediction') or {}
+        place_id = prediction.get('placeId') or ''
+        text_obj = prediction.get('text') or {}
+        structured = prediction.get('structuredFormat') or {}
+
+        main_text = (
+            (structured.get('mainText') or {}).get('text')
+            or text_obj.get('text')
+            or ''
+        )
+        secondary_text = (
+            (structured.get('secondaryText') or {}).get('text')
+            or ''
+        )
+        description = (
+            text_obj.get('text')
+            or ', '.join(x for x in [main_text, secondary_text] if x)
+        )
+
+        if not description or not place_id:
             continue
+
+        latitude = None
+        longitude = None
+        formatted_address = description
+
+        try:
+            details_url = f'https://places.googleapis.com/v1/places/{place_id}'
+            details_headers = {
+                'X-Goog-Api-Key': api_key,
+                'X-Goog-FieldMask': 'id,formattedAddress,location',
+            }
+            details_response = requests.get(
+                details_url,
+                headers=details_headers,
+                timeout=8
+            )
+
+            if details_response.status_code < 400:
+                details = details_response.json()
+                location = details.get('location') or {}
+                latitude = location.get('latitude')
+                longitude = location.get('longitude')
+                formatted_address = (
+                    details.get('formattedAddress')
+                    or description
+                )
+        except Exception:
+            pass
+
+        if latitude is None or longitude is None:
+            continue
+
+        latitude = float(latitude)
+        longitude = float(longitude)
+
+        if not (
+            40.80 <= latitude <= 41.12
+            and -5.90 <= longitude <= -5.35
+        ):
+            continue
+
         predictions.append({
-            'place_id': p.get('placeId') or description,
-            'description': description.replace(', Spain', ', España'),
+            'place_id': place_id,
+            'description': formatted_address.replace(', Spain', ', España'),
             'main_text': main_text,
             'secondary_text': secondary_text.replace(', Spain', ', España'),
+            'latitude': latitude,
+            'longitude': longitude,
         })
+
     return Response({'predictions': predictions[:8]})
 
 @api_view(['GET'])
