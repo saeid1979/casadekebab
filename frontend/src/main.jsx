@@ -853,18 +853,78 @@ function App() {
       if (normalizePhoneDigits(orderPhone).length !== 9) return setMessage('Escribe un número de teléfono válido.');
       if (!cart.length) return setMessage('La cesta está vacía.');
       if (form.delivery_type === 'delivery' && !form.address.trim()) return setMessage('La dirección es obligatoria para entrega a domicilio.');
-      if (form.delivery_type === 'delivery' && !deliveryAllowed) return setMessage(`Esta dirección está fuera de la zona de reparto (${DEFAULT_DELIVERY_RADIUS_KM} km).`);
 
       setLoading(true);
+
+      let resolvedPoint = deliveryPoint;
+      let resolvedRoute = routeInfo;
+
+      // اگر مشتری آدرس را فقط تایپ کرده و از لیست انتخاب نکرده باشد،
+      // قبل از ثبت سفارش آن را خودکار به مختصات معتبر سالامانکا تبدیل می‌کنیم.
+      if (form.delivery_type === 'delivery' && !resolvedPoint) {
+        setMessage('Validando automáticamente la dirección escrita...');
+        const matches = await fetchSalamancaAddressResults(form.address, 5);
+        const first = matches?.[0];
+
+        if (!first) {
+          throw {
+            response: {
+              data: {
+                address: ['No se encontró esta dirección en Salamanca. Selecciona una sugerencia válida de la lista.']
+              }
+            }
+          };
+        }
+
+        resolvedPoint = {
+          lat: Number(first.lat),
+          lng: Number(first.lon),
+        };
+
+        const normalizedAddress = formatAddressFull(first);
+        if (normalizedAddress) {
+          setForm(current => ({ ...current, address: normalizedAddress }));
+        }
+
+        try {
+          resolvedRoute = await fetchDrivingRoute(resolvedPoint);
+          setDeliveryPoint(resolvedPoint);
+          setRouteInfo(resolvedRoute);
+        } catch (routeError) {
+          const straightDistance = haversineKm(RESTAURANT_COORD, resolvedPoint);
+          resolvedRoute = {
+            distanceKm: straightDistance,
+            durationMin: straightDistance ? Math.max(5, (straightDistance / 25) * 60) : null,
+            coords: [],
+            provider: 'Haversine fallback'
+          };
+          setDeliveryPoint(resolvedPoint);
+          setRouteInfo(resolvedRoute);
+        }
+      }
+
+      const resolvedDistance = resolvedRoute?.distanceKm ?? deliveryDistance ?? null;
+      const resolvedDuration = resolvedRoute?.durationMin ?? deliveryDuration ?? null;
+
+      if (form.delivery_type === 'delivery' && !resolvedPoint) {
+        throw {
+          response: {
+            data: {
+              delivery_latitude: ['La ubicación del cliente no está disponible.']
+            }
+          }
+        };
+      }
+
       const payload = {
         customer_name: form.name,
         customer_phone: orderPhone,
         delivery_type: form.delivery_type,
         address: form.address,
-        delivery_latitude: deliveryPoint?.lat || null,
-        delivery_longitude: deliveryPoint?.lng || null,
-        route_distance_km: deliveryDistance || null,
-        route_duration_min: deliveryDuration || null,
+        delivery_latitude: resolvedPoint?.lat ?? null,
+        delivery_longitude: resolvedPoint?.lng ?? null,
+        route_distance_km: resolvedDistance,
+        route_duration_min: resolvedDuration,
         delivery_fee_override: deliveryFee,
         note: [form.floor ? `Piso/Puerta: ${form.floor}` : '', form.note || ''].filter(Boolean).join(' | '),
         payment_method: form.payment_method,
@@ -875,17 +935,36 @@ function App() {
           options: x.selected_options.map(opt => ({ id: opt.id })),
         })),
       };
+
       const res = await axios.post(`${API_BASE}/orders/`, payload);
       const orderCode = res.data.order.order_code;
       setCart([]);
       setCheckoutOpen(false);
-      if (form.payment_method === 'online') {
-        setMessage('El pago online todavía no está disponible. La infraestructura bancaria BBVA está en preparación y no se ha registrado ningún pedido.');
-        return;
-      }
       window.location.href = `/receipt/${orderCode}`;
     } catch (err) {
-      setMessage('No se pudo registrar el pedido. Revisa que el menú esté cargado en la base de datos.');
+      console.error('ORDER_CREATE_ERROR', err?.response?.data || err);
+
+      const data = err?.response?.data;
+      let detail = '';
+
+      if (typeof data === 'string') {
+        detail = data;
+      } else if (data?.detail) {
+        detail = Array.isArray(data.detail) ? data.detail.join(' ') : String(data.detail);
+      } else if (data && typeof data === 'object') {
+        detail = Object.entries(data)
+          .map(([field, value]) => {
+            const text = Array.isArray(value) ? value.join(' ') : String(value);
+            return `${field}: ${text}`;
+          })
+          .join(' | ');
+      }
+
+      setMessage(
+        detail
+          ? `No se pudo registrar el pedido: ${detail}`
+          : 'No se pudo registrar el pedido. Revisa la dirección, los productos y los datos enviados.'
+      );
     } finally {
       setLoading(false);
     }
