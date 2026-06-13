@@ -456,6 +456,10 @@ function App() {
   const [activeItem, setActiveItem] = useState(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutOtpOpen, setCheckoutOtpOpen] = useState(false);
+  const [checkoutOtpCode, setCheckoutOtpCode] = useState('');
+  const [checkoutOtpMessage, setCheckoutOtpMessage] = useState('');
+  const [checkoutOtpSending, setCheckoutOtpSending] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState('details');
   const [phone, setPhone] = useState(() => getSessionCustomer()?.phone || '');
   const [code, setCode] = useState('');
@@ -745,9 +749,76 @@ function App() {
     setMessage('Dirección de entrega confirmada.');
   }
 
-  async function placeOrder() {
+  async function requestCheckoutOtp() {
+    if (!cart.length) return setMessage('La cesta está vacía.');
+    if (!form.name.trim()) return setMessage('Escribe el nombre del cliente.');
+    if (!phone || phone.replace(/\D/g, '').length < 9) return setMessage('Escribe un número de teléfono válido.');
+    if (form.delivery_type === 'delivery' && !form.address.trim()) return setMessage('La dirección es obligatoria para entrega a domicilio.');
+    if (form.delivery_type === 'delivery' && !deliveryAllowed) return setMessage(`Esta dirección está fuera de la zona de reparto (${DEFAULT_DELIVERY_RADIUS_KM} km).`);
+
     try {
-      if (!phone || phone.length < 6) return setLoginOpen(true);
+      setCheckoutOtpSending(true);
+      setCheckoutOtpMessage('');
+      setCheckoutOtpCode('');
+      await axios.post(`${API_BASE}/auth/send-code/`, { phone });
+      setCheckoutOtpOpen(true);
+      setCheckoutOtpMessage(`Hemos enviado un código de verificación al teléfono ${phone}.`);
+    } catch (err) {
+      setMessage(err.response?.data?.detail || 'No se pudo enviar el código de verificación.');
+    } finally {
+      setCheckoutOtpSending(false);
+    }
+  }
+
+  async function verifyCheckoutOtp() {
+    const codeValue = checkoutOtpCode.trim();
+    if (!codeValue) {
+      setCheckoutOtpMessage('Introduce el código recibido por SMS.');
+      return;
+    }
+
+    try {
+      setCheckoutOtpSending(true);
+      setCheckoutOtpMessage('');
+      const res = await axios.post(`${API_BASE}/auth/verify-code/`, {
+        phone,
+        code: codeValue,
+      });
+
+      if (res.data?.customer) {
+        setCustomer(res.data.customer);
+        setSessionCustomer(res.data.customer);
+      }
+
+      setCheckoutOtpOpen(false);
+      setCheckoutOtpCode('');
+      await finalizeOrderAfterOtp();
+    } catch (err) {
+      setCheckoutOtpMessage(
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        'El código es incorrecto o ha caducado.'
+      );
+    } finally {
+      setCheckoutOtpSending(false);
+    }
+  }
+
+  async function resendCheckoutOtp() {
+    try {
+      setCheckoutOtpSending(true);
+      await axios.post(`${API_BASE}/auth/send-code/`, { phone });
+      setCheckoutOtpMessage(`Hemos enviado un nuevo código al teléfono ${phone}.`);
+    } catch (err) {
+      setCheckoutOtpMessage('No se pudo reenviar el código.');
+    } finally {
+      setCheckoutOtpSending(false);
+    }
+  }
+
+  async function finalizeOrderAfterOtp() {
+    try {
+      if (!phone || phone.replace(/\D/g, '').length < 9) return setMessage('Escribe un número de teléfono válido.');
       if (!cart.length) return setMessage('La cesta está vacía.');
       if (form.delivery_type === 'delivery' && !form.address.trim()) return setMessage('La dirección es obligatoria para entrega a domicilio.');
       if (form.delivery_type === 'delivery' && !deliveryAllowed) return setMessage(`Esta dirección está fuera de la zona de reparto (${DEFAULT_DELIVERY_RADIUS_KM} km).`);
@@ -781,11 +852,7 @@ function App() {
         window.location.href = `/payment-demo/${orderCode}`;
         return;
       }
-      setMessage(
-        form.delivery_type === 'delivery'
-          ? `Pedido confirmado: ${orderCode}. Hemos enviado este código por SMS al teléfono ${phone}.`
-          : `Pedido confirmado: ${orderCode}. Puedes ver el ticket en /receipt/${orderCode}`
-      );
+      window.location.href = `/receipt/${orderCode}`;
     } catch (err) {
       setMessage('No se pudo registrar el pedido. Revisa que el menú esté cargado en la base de datos.');
     } finally {
@@ -961,10 +1028,45 @@ function App() {
         {form.delivery_type === 'collection' && <option value="store">Pagar en tienda</option>}
         <option value="online">Pago online</option>
       </select>
-      {form.delivery_type === 'delivery' && <div className="delivery-sms-code-note">
-        📲 Al confirmar el pedido, recibirás por SMS el código de seguimiento en <b>{phone || 'tu teléfono'}</b>. No necesitas introducir ningún código en este formulario.
-      </div>}
-      <button className="pay" disabled={loading || settings?.is_open === false || (form.delivery_type === 'delivery' && !form.address.trim()) || !deliveryAllowed} onClick={placeOrder}>Confirmar pedido <b>{money(total)}</b></button>
+      <button className="pay" disabled={loading || settings?.is_open === false || (form.delivery_type === 'delivery' && !form.address.trim()) || !deliveryAllowed} onClick={requestCheckoutOtp}>Confirmar pedido <b>{money(total)}</b></button>
+    </Modal>}
+
+    {checkoutOtpOpen && <Modal onClose={() => {
+      if (!checkoutOtpSending) setCheckoutOtpOpen(false);
+    }} className="checkout-otp-modal">
+      <h2>Verificación del teléfono</h2>
+      <p>Introduce el código enviado por SMS a <b>{phone}</b>.</p>
+      <input
+        autoFocus
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        maxLength={8}
+        placeholder="Código de verificación"
+        value={checkoutOtpCode}
+        onChange={e => setCheckoutOtpCode(e.target.value.replace(/\D/g, ''))}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            verifyCheckoutOtp();
+          }
+        }}
+      />
+      {checkoutOtpMessage && <p className="muted">{checkoutOtpMessage}</p>}
+      <button
+        className="pay"
+        disabled={checkoutOtpSending || !checkoutOtpCode.trim()}
+        onClick={verifyCheckoutOtp}
+      >
+        {checkoutOtpSending ? 'Verificando...' : 'Verificar y continuar'}
+      </button>
+      <button
+        type="button"
+        className="mini-action"
+        disabled={checkoutOtpSending}
+        onClick={resendCheckoutOtp}
+      >
+        Reenviar código
+      </button>
     </Modal>}
   </div>;
 }
@@ -1957,7 +2059,21 @@ function ReceiptApp() {
       <div className="receipt-line total"><span>Total</span><b>{money(order.total)}</b></div>
       <p><b>Pago:</b> {order.payment_method} · {order.payment_status}</p>
       {order.note && <p><b>Nota:</b> {order.note}</p>}
-      <button className="print-button" onClick={() => window.print()}>Imprimir ticket</button>
+
+      <hr />
+      <div className="order-confirmation-message">
+        <h2>Pedido confirmado</h2>
+        <p>
+          {order.payment_method === 'online'
+            ? 'El banco ha confirmado el pago correctamente.'
+            : 'Tu pedido ha sido confirmado correctamente.'}
+        </p>
+        <p><b>En un máximo de 20 minutos tu pedido llegará a la dirección indicada.</b></p>
+        <p>Gracias por pedir tu comida en Casa de Kebab Turco.</p>
+      </div>
+
+      <button className="print-button" onClick={() => window.print()}>Imprimir factura</button>
+      <button className="mini-action" onClick={() => window.location.href='/'}>Volver al menú</button>
     </section>}
   </div>;
 }
