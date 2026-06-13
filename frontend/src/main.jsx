@@ -858,37 +858,130 @@ function App() {
 
       let resolvedPoint = deliveryPoint;
       let resolvedRoute = routeInfo;
+      let resolvedAddress = form.address.trim();
 
-      // اگر مشتری آدرس را فقط تایپ کرده و از لیست انتخاب نکرده باشد،
-      // قبل از ثبت سفارش آن را خودکار به مختصات معتبر سالامانکا تبدیل می‌کنیم.
-      if (form.delivery_type === 'delivery' && !resolvedPoint) {
+      function isValidSalamancaPoint(point) {
+        return Boolean(
+          point &&
+          Number.isFinite(Number(point.lat)) &&
+          Number.isFinite(Number(point.lng)) &&
+          Number(point.lat) >= 40.80 &&
+          Number(point.lat) <= 41.12 &&
+          Number(point.lng) >= -5.90 &&
+          Number(point.lng) <= -5.35
+        );
+      }
+
+      // When the address was typed but not selected, resolve it through the
+      // same backend Google Places endpoints used by the customer app.
+      if (form.delivery_type === 'delivery' && !isValidSalamancaPoint(resolvedPoint)) {
         setMessage('Validando automáticamente la dirección escrita...');
-        const matches = await fetchSalamancaAddressResults(form.address, 5);
-        const first = matches?.[0];
 
-        if (!first) {
+        try {
+          const autocompleteResponse = await axios.get(
+            `${API_BASE}/places/autocomplete/`,
+            { params: { q: resolvedAddress } }
+          );
+
+          const predictions = Array.isArray(autocompleteResponse.data)
+            ? autocompleteResponse.data
+            : (
+                autocompleteResponse.data?.predictions ||
+                autocompleteResponse.data?.results ||
+                autocompleteResponse.data?.suggestions ||
+                []
+              );
+
+          const prediction = predictions[0];
+          const directLat = Number(prediction?.latitude ?? prediction?.lat);
+          const directLng = Number(
+            prediction?.longitude ?? prediction?.lng ?? prediction?.lon
+          );
+
+          if (
+            Number.isFinite(directLat) &&
+            Number.isFinite(directLng) &&
+            directLat >= 40.80 && directLat <= 41.12 &&
+            directLng >= -5.90 && directLng <= -5.35
+          ) {
+            resolvedPoint = {
+              lat: Number(directLat.toFixed(7)),
+              lng: Number(directLng.toFixed(7)),
+            };
+            resolvedAddress =
+              prediction?.description ||
+              prediction?.formatted_address ||
+              resolvedAddress;
+          } else {
+            const placeId =
+              prediction?.place_id ||
+              prediction?.placeId ||
+              prediction?.id;
+
+            if (placeId) {
+              const detailsResponse = await axios.get(
+                `${API_BASE}/places/details/`,
+                { params: { place_id: placeId } }
+              );
+
+              const detailsLat = Number(detailsResponse.data?.latitude);
+              const detailsLng = Number(detailsResponse.data?.longitude);
+
+              if (
+                Number.isFinite(detailsLat) &&
+                Number.isFinite(detailsLng) &&
+                detailsLat >= 40.80 && detailsLat <= 41.12 &&
+                detailsLng >= -5.90 && detailsLng <= -5.35
+              ) {
+                resolvedPoint = {
+                  lat: Number(detailsLat.toFixed(7)),
+                  lng: Number(detailsLng.toFixed(7)),
+                };
+                resolvedAddress =
+                  detailsResponse.data?.formatted_address ||
+                  prediction?.description ||
+                  resolvedAddress;
+              }
+            }
+          }
+        } catch (placesError) {
+          console.warn(
+            'Backend Places resolution failed; trying Nominatim fallback.',
+            placesError?.response?.data || placesError
+          );
+        }
+
+        // Keep the existing free fallback for resilience.
+        if (!isValidSalamancaPoint(resolvedPoint)) {
+          const matches = await fetchSalamancaAddressResults(resolvedAddress, 5);
+          const first = matches?.[0];
+
+          if (first) {
+            resolvedPoint = {
+              lat: Number(Number(first.lat).toFixed(7)),
+              lng: Number(Number(first.lon).toFixed(7)),
+            };
+            resolvedAddress = formatAddressFull(first) || resolvedAddress;
+          }
+        }
+
+        if (!isValidSalamancaPoint(resolvedPoint)) {
           throw {
             response: {
               data: {
-                address: ['No se encontró esta dirección en Salamanca. Selecciona una sugerencia válida de la lista.']
+                address: [
+                  'No se encontró esta dirección en Salamanca. Selecciona una sugerencia válida de la lista.'
+                ]
               }
             }
           };
         }
 
-        resolvedPoint = {
-          lat: Number(first.lat),
-          lng: Number(first.lon),
-        };
-
-        const normalizedAddress = formatAddressFull(first);
-        if (normalizedAddress) {
-          setForm(current => ({ ...current, address: normalizedAddress }));
-        }
+        setDeliveryPoint(resolvedPoint);
+        setForm(current => ({ ...current, address: resolvedAddress }));
 
         try {
           resolvedRoute = await fetchDrivingRoute(resolvedPoint);
-          setDeliveryPoint(resolvedPoint);
           setRouteInfo(resolvedRoute);
         } catch (routeError) {
           const straightDistance = haversineKm(RESTAURANT_COORD, resolvedPoint);
@@ -898,7 +991,6 @@ function App() {
             coords: [],
             provider: 'Haversine fallback'
           };
-          setDeliveryPoint(resolvedPoint);
           setRouteInfo(resolvedRoute);
         }
       }
@@ -920,9 +1012,9 @@ function App() {
         customer_name: form.name,
         customer_phone: orderPhone,
         delivery_type: form.delivery_type,
-        address: form.address,
-        delivery_latitude: resolvedPoint?.lat ?? null,
-        delivery_longitude: resolvedPoint?.lng ?? null,
+        address: resolvedAddress,
+        delivery_latitude: resolvedPoint?.lat == null ? null : Number(Number(resolvedPoint.lat).toFixed(7)),
+        delivery_longitude: resolvedPoint?.lng == null ? null : Number(Number(resolvedPoint.lng).toFixed(7)),
         route_distance_km: resolvedDistance == null ? null : Number(Number(resolvedDistance).toFixed(2)),
         route_duration_min: resolvedDuration == null ? null : Number(Number(resolvedDuration).toFixed(2)),
         delivery_fee_override: deliveryFee,
