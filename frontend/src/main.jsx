@@ -760,6 +760,11 @@ function App() {
   }
 
   async function requestCheckoutOtp() {
+    if (form.payment_method === 'online') {
+      setMessage('El pago online todavía no está disponible. La infraestructura bancaria BBVA está en preparación y no se ha registrado ningún pedido.');
+      return;
+    }
+
     const sessionCustomer = customer || getSessionCustomer();
     const orderPhone = sessionCustomer?.phone || phone;
 
@@ -838,6 +843,11 @@ function App() {
   }
 
   async function finalizeOrderAfterOtp(verifiedPhone = '') {
+    if (form.payment_method === 'online') {
+      setMessage('El pago online todavía no está disponible. La infraestructura bancaria BBVA está en preparación y no se ha registrado ningún pedido.');
+      return;
+    }
+
     try {
       const orderPhone = verifiedPhone || customer?.phone || getSessionCustomer()?.phone || phone;
       if (normalizePhoneDigits(orderPhone).length !== 9) return setMessage('Escribe un número de teléfono válido.');
@@ -870,8 +880,7 @@ function App() {
       setCart([]);
       setCheckoutOpen(false);
       if (form.payment_method === 'online') {
-        await axios.post(`${API_BASE}/payments/demo/${orderCode}/create/`);
-        window.location.href = `/payment-demo/${orderCode}`;
+        setMessage('El pago online todavía no está disponible. La infraestructura bancaria BBVA está en preparación y no se ha registrado ningún pedido.');
         return;
       }
       window.location.href = `/receipt/${orderCode}`;
@@ -1055,7 +1064,7 @@ function App() {
         {form.delivery_type === 'delivery' && <option value="cash">Efectivo</option>}
         {form.delivery_type === 'delivery' && <option value="card_delivery">Tarjeta al repartidor</option>}
         {form.delivery_type === 'collection' && <option value="store">Pagar en tienda</option>}
-        <option value="online">Pago online</option>
+        <option value="online">Pago online (próximamente)</option>
       </select>
       <button className="pay" disabled={loading || settings?.is_open === false || (form.delivery_type === 'delivery' && !form.address.trim()) || !deliveryAllowed} onClick={requestCheckoutOtp}>Confirmar pedido <b>{money(total)}</b></button>
     </Modal>}
