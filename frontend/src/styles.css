@@ -2036,3 +2036,20 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
 .account-pro-summary-cards{margin-top:6px}.account-pro-history-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px}.account-pro-history-card{padding:20px}.account-pro-history-meta{display:grid;gap:8px;margin:14px 0}.account-pro-history-meta p{display:flex;justify-content:space-between;gap:12px;margin:0;padding-bottom:8px;border-bottom:1px solid #f0e6dd}.account-pro-history-meta p:last-child{border-bottom:0;padding-bottom:0}.account-pro-history-meta b{color:#866f61}.account-pro-history-meta span{font-weight:700;color:#231712}.account-pro-history-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
 @media(max-width:1200px){.account-pro-hero,.account-pro-shell,.account-pro-grid-top,.account-pro-grid-bottom{grid-template-columns:1fr}.account-pro-sidebar{position:static}.account-pro-track-form{min-width:0}}
 @media(max-width:760px){.account-pro-page{gap:18px}.account-pro-copy,.account-pro-lookup,.account-pro-panel,.account-pro-sidebar,.account-pro-empty-state,.account-pro-history-card{border-radius:22px}.account-pro-copy{padding:22px}.account-pro-lookup,.account-pro-panel,.account-pro-sidebar,.account-pro-history-card{padding:18px}.account-pro-form-row,.account-pro-track-form,.account-pro-chat-compose{grid-template-columns:1fr}.account-pro-mini-stats{grid-template-columns:1fr}.account-pro-toolbar{align-items:stretch}.account-pro-toolbar-copy h2{font-size:26px}.account-pro-timeline{overflow:auto;grid-template-columns:repeat(6,120px);padding-bottom:8px}.account-pro-meta-list div,.account-pro-item-row,.account-pro-order-total{flex-direction:column;align-items:flex-start}.account-pro-meta-list b{max-width:none;text-align:left}.account-pro-map-panel .tracking-map,.account-pro-map-panel .tracking-map-box{min-height:340px;height:340px}.account-pro-chat-list{min-height:260px;max-height:260px}}
+
+/* Tracking route between rider and customer */
+.tracking-route-panel{position:absolute;left:14px;right:14px;top:14px;background:rgba(255,255,255,.96);border:1px solid #ead8c5;border-radius:16px;padding:12px 14px;box-shadow:0 12px 24px rgba(0,0,0,.10);z-index:420;display:grid;gap:10px}
+.tracking-route-legend{display:flex;flex-wrap:wrap;gap:8px}
+.tracking-route-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800;border:1px solid transparent}
+.tracking-route-pill:before{content:'';display:inline-block;width:10px;height:10px;border-radius:50%}
+.tracking-route-pill-restaurant{background:#fff7df;border-color:#f0d896;color:#7f5a06}.tracking-route-pill-restaurant:before{background:#f0be3a}
+.tracking-route-pill-rider{background:#effaf3;border-color:#cce8d6;color:#106c35}.tracking-route-pill-rider:before{background:#1fb05c}
+.tracking-route-pill-customer{background:#fff0ef;border-color:#f1c8c5;color:#94261f}.tracking-route-pill-customer:before{background:#c6352d}
+.tracking-route-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.tracking-route-summary-grid div{background:#fffaf6;border:1px solid #efe1d6;border-radius:12px;padding:10px 12px;display:grid;gap:4px}
+.tracking-route-summary-grid small{color:#856e61;font-size:12px;font-weight:700}.tracking-route-summary-grid b{color:#231711;font-size:15px}
+.tracking-route-caption{margin:0;color:#6f5140;font-size:13px;line-height:1.6}
+.tracking-map{padding-top:168px}
+.tracking-map.compact{padding-top:158px}
+@media(max-width:900px){.tracking-route-panel{left:10px;right:10px;top:10px;padding:10px 11px}.tracking-route-summary-grid{grid-template-columns:1fr}.tracking-map{padding-top:238px}.tracking-map.compact{padding-top:228px}}
+
