@@ -367,3 +367,62 @@ class SmsGatewayMessage(models.Model):
 
     def __str__(self):
         return f'{self.id} - {self.phone} - {self.status}'
+
+
+class OrderChatMessage(models.Model):
+    SENDER_CUSTOMER = 'customer'
+    SENDER_RIDER = 'rider'
+    SENDER_ADMIN = 'admin'
+    SENDER_CHOICES = [
+        (SENDER_CUSTOMER, 'Cliente'),
+        (SENDER_RIDER, 'Repartidor'),
+        (SENDER_ADMIN, 'Admin'),
+    ]
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='chat_messages')
+    sender_type = models.CharField(max_length=20, choices=SENDER_CHOICES)
+    sender_name = models.CharField(max_length=160, blank=True, default='')
+    message = models.TextField(max_length=1200)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+
+    def __str__(self):
+        return f'{self.order.order_code} - {self.sender_type} - {self.created_at:%Y-%m-%d %H:%M}'
+
+
+class OrderReview(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pendiente'),
+        (STATUS_APPROVED, 'Aprobada'),
+        (STATUS_REJECTED, 'Rechazada'),
+    ]
+
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='review')
+    customer_name = models.CharField(max_length=160, blank=True, default='')
+    customer_phone = models.CharField(max_length=30)
+    rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
+    comment = models.TextField(max_length=1200)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    admin_note = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    approved_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        self.rating = min(5, max(1, int(self.rating or 1)))
+        if self.status == self.STATUS_APPROVED and not self.approved_at:
+            self.approved_at = timezone.now()
+        if self.status != self.STATUS_APPROVED:
+            self.approved_at = None
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.order.order_code} - {self.rating}/5 - {self.status}'

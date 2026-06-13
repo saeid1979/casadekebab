@@ -40,6 +40,10 @@ from .views import (
     admin_me,
     sms_gateway_pending,
     sms_gateway_mark,
+    order_tracking_location,
+    order_chat,
+    create_order_review,
+    public_reviews,
 )
 
 router = DefaultRouter()
@@ -59,6 +63,10 @@ urlpatterns = [
     path('coupons/validate/', validate_coupon, name='validate-coupon'),
     path('places/autocomplete/', google_places_autocomplete, name='google-places-autocomplete'),
     path('orders/track/', public_order_tracking, name='public-order-tracking'),
+    path('orders/<str:order_code>/location/', order_tracking_location, name='order-tracking-location'),
+    path('orders/<str:order_code>/chat/', order_chat, name='order-chat'),
+    path('reviews/', create_order_review, name='create-order-review'),
+    path('reviews/public/', public_reviews, name='public-reviews'),
 
     path('sms-gateway/pending/', sms_gateway_pending, name='sms-gateway-pending'),
     path('sms-gateway/mark/', sms_gateway_mark, name='sms-gateway-mark'),
