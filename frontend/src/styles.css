@@ -2058,3 +2058,13 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
 /* exact-customer-location-fix-v2 */
 .tracking-coordinate-warning{position:absolute;left:14px;right:14px;bottom:14px;z-index:440;padding:12px 14px;border-radius:14px;border:1px solid #efb7b2;background:rgba(255,238,236,.97);color:#9b211a;font-size:14px;font-weight:700;line-height:1.6;box-shadow:0 10px 24px rgba(0,0,0,.10)}
 .tracking-coordinate-warning.success{border-color:#b9dfc5;background:rgba(235,250,240,.97);color:#176d38}
+
+
+/* visible-rider-customer-route-v1 */
+.tracking-current-route-label{color:#dc2626!important}
+.tracking-map-box .leaflet-overlay-pane svg{overflow:visible}
+.tracking-map-box path.leaflet-interactive{
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+

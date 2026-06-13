@@ -1601,112 +1601,115 @@ function TrackingMap({ order, compact = false }) {
   const boxRef = useRef(null);
   const mapRef = useRef(null);
   const layersRef = useRef([]);
-  const routeLayerRef = useRef(null);
-  const [roadRoute, setRoadRoute] = useState(null);
-  const [routeLoading, setRouteLoading] = useState(false);
+  const routeRequestRef = useRef(0);
+  const rider = order?.assigned_rider_data;
 
   function toNumber(value) {
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   }
 
-  function isSalamancaPoint(lat, lng) {
+  function isValidPoint(lat, lng) {
     return lat !== null && lng !== null &&
-      lat >= 40.80 && lat <= 41.12 &&
-      lng >= -5.90 && lng <= -5.35;
-  }
-
-  function normalizePoint(rawLat, rawLng) {
-    const lat = toNumber(rawLat);
-    const lng = toNumber(rawLng);
-    if (isSalamancaPoint(lat, lng)) return { lat, lng, valid: true, corrected: false };
-    if (isSalamancaPoint(lng, lat)) return { lat: lng, lng: lat, valid: true, corrected: true };
-    return { lat: null, lng: null, valid: false, corrected: false };
+      lat >= -90 && lat <= 90 &&
+      lng >= -180 && lng <= 180;
   }
 
   function formatKm(value) {
-    if (value === null || value === undefined || Number.isNaN(value)) return '—';
-    return `${value.toFixed(value < 10 ? 2 : 1)} km`;
-  }
-
-  function formatMinutes(value) {
-    if (value === null || value === undefined || Number.isNaN(value)) return '—';
-    return `${Math.max(1, Math.round(value))} min`;
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+    return `${Number(value).toFixed(Number(value) < 10 ? 2 : 1)} km`;
   }
 
   function distanceKm(aLat, aLng, bLat, bLng) {
-    if ([aLat, aLng, bLat, bLng].some(v => v === null || v === undefined)) return null;
+    if (![aLat, aLng, bLat, bLng].every(Number.isFinite)) return null;
     const toRad = deg => (deg * Math.PI) / 180;
     const R = 6371;
     const dLat = toRad(bLat - aLat);
     const dLng = toRad(bLng - aLng);
-    const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+    const x = Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) *
+      Math.sin(dLng / 2) ** 2;
     return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
   }
 
-  const rider = order?.assigned_rider_data;
-  const riderPoint = normalizePoint(rider?.current_latitude, rider?.current_longitude);
-  const customerPoint = normalizePoint(order?.delivery_latitude, order?.delivery_longitude);
+  async function fetchRouteBetween(startLat, startLng, endLat, endLng) {
+    const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson&steps=false`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('OSRM route failed');
+    const data = await response.json();
+    const route = data?.routes?.[0];
+    if (!route?.geometry?.coordinates?.length) throw new Error('OSRM route unavailable');
+    return {
+      points: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+      distanceKm: Number(route.distance || 0) / 1000,
+      durationMin: Number(route.duration || 0) / 60,
+    };
+  }
 
-  const riderLat = riderPoint.lat;
-  const riderLng = riderPoint.lng;
-  const customerLat = customerPoint.lat;
-  const customerLng = customerPoint.lng;
-  const hasRider = riderPoint.valid;
-  const hasCustomer = customerPoint.valid;
+  const riderLat = toNumber(rider?.current_latitude);
+  const riderLng = toNumber(rider?.current_longitude);
+  const customerLat = toNumber(order?.delivery_latitude);
+  const customerLng = toNumber(order?.delivery_longitude);
 
-  const restaurantToRiderKm = hasRider ? distanceKm(RESTAURANT_COORD.lat, RESTAURANT_COORD.lng, riderLat, riderLng) : null;
-  const riderToCustomerStraightKm = hasRider && hasCustomer ? distanceKm(riderLat, riderLng, customerLat, customerLng) : null;
-  const riderToCustomerKm = roadRoute?.distanceKm ?? riderToCustomerStraightKm;
+  const hasRider = isValidPoint(riderLat, riderLng);
+  const hasCustomer = isValidPoint(customerLat, customerLng);
+
+  const restaurantToRiderKm = hasRider
+    ? distanceKm(RESTAURANT_COORD.lat, RESTAURANT_COORD.lng, riderLat, riderLng)
+    : null;
+
+  const riderToCustomerKm = hasRider && hasCustomer
+    ? distanceKm(riderLat, riderLng, customerLat, customerLng)
+    : null;
+
+  const routeLabel = hasRider && hasCustomer
+    ? 'Repartidor → Cliente'
+    : hasRider
+      ? 'Restaurante → Repartidor'
+      : hasCustomer
+        ? 'Restaurante → Cliente'
+        : 'Esperando ubicación GPS';
 
   useEffect(() => {
     if (!boxRef.current || mapRef.current) return;
-    const map = L.map(boxRef.current, { scrollWheelZoom: true, zoomControl: true }).setView([RESTAURANT_COORD.lat, RESTAURANT_COORD.lng], 14);
+
+    const map = L.map(boxRef.current, {
+      scrollWheelZoom: true,
+      zoomControl: true
+    }).setView([RESTAURANT_COORD.lat, RESTAURANT_COORD.lng], 14);
+
+    map.createPane('routeShadowPane');
+    map.getPane('routeShadowPane').style.zIndex = '445';
+
+    map.createPane('routeMainPane');
+    map.getPane('routeMainPane').style.zIndex = '446';
+
+    map.createPane('trackingMarkerPane');
+    map.getPane('trackingMarkerPane').style.zIndex = '650';
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
+
     mapRef.current = map;
     setTimeout(() => map.invalidateSize(), 250);
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadRoadRoute() {
-      if (!hasRider || !hasCustomer) {
-        setRoadRoute(null);
-        return;
-      }
-      setRouteLoading(true);
-      try {
-        const url = `https://router.project-osrm.org/route/v1/driving/${riderLng},${riderLat};${customerLng},${customerLat}?overview=full&geometries=geojson&steps=false`;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('route failed');
-        const data = await response.json();
-        const route = data?.routes?.[0];
-        if (!route || cancelled) return;
-        setRoadRoute({
-          coords: (route.geometry?.coordinates || []).map(([lng, lat]) => [lat, lng]),
-          distanceKm: route.distance / 1000,
-          durationMin: route.duration / 60
-        });
-      } catch (err) {
-        if (!cancelled) setRoadRoute(null);
-      } finally {
-        if (!cancelled) setRouteLoading(false);
-      }
-    }
-    loadRoadRoute();
-    return () => { cancelled = true; };
-  }, [riderLat, riderLng, customerLat, customerLng, hasRider, hasCustomer]);
-
-  useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+
+    const requestId = ++routeRequestRef.current;
     layersRef.current.forEach(layer => map.removeLayer(layer));
     layersRef.current = [];
-    routeLayerRef.current = null;
-    const points = [];
+
+    const addLayer = layer => {
+      layersRef.current.push(layer);
+      return layer;
+    };
+
+    const pointsForBounds = [];
 
     const restaurantIcon = L.divIcon({
       className: 'tracking-restaurant-marker',
@@ -1716,52 +1719,150 @@ function TrackingMap({ order, compact = false }) {
       popupAnchor: [0, -52]
     });
 
-    const restaurantMarker = L.marker([RESTAURANT_COORD.lat, RESTAURANT_COORD.lng], { icon: restaurantIcon })
-      .addTo(map)
-      .bindPopup(`<b>Casa de Kebab Turco</b><br/>${RESTAURANT_ADDRESS}`);
-    layersRef.current.push(restaurantMarker);
-    points.push([RESTAURANT_COORD.lat, RESTAURANT_COORD.lng]);
+    addLayer(
+      L.marker(
+        [RESTAURANT_COORD.lat, RESTAURANT_COORD.lng],
+        { icon: restaurantIcon, pane: 'trackingMarkerPane' }
+      )
+        .addTo(map)
+        .bindPopup(`<b>Casa de Kebab Turco</b><br/>${RESTAURANT_ADDRESS}`)
+    );
+
+    pointsForBounds.push([RESTAURANT_COORD.lat, RESTAURANT_COORD.lng]);
 
     if (hasRider) {
-      const riderMarker = L.circleMarker([riderLat, riderLng], {
-        radius: 11, color: '#0b6b35', fillColor: '#21b15c', fillOpacity: .95, weight: 4
-      }).addTo(map).bindPopup(`<b>Repartidor</b><br/>${rider?.name || ''}<br/>${rider?.phone || ''}`);
-      layersRef.current.push(riderMarker);
-      points.push([riderLat, riderLng]);
-
-      const restaurantToRider = L.polyline([
-        [RESTAURANT_COORD.lat, RESTAURANT_COORD.lng],
-        [riderLat, riderLng]
-      ], { color: '#149c49', weight: 4, opacity: .7, dashArray: '6 10' }).addTo(map);
-      layersRef.current.push(restaurantToRider);
+      addLayer(
+        L.circleMarker([riderLat, riderLng], {
+          pane: 'trackingMarkerPane',
+          radius: 12,
+          color: '#075c2d',
+          fillColor: '#22c55e',
+          fillOpacity: 1,
+          weight: 5
+        })
+          .addTo(map)
+          .bindPopup(`<b>Repartidor</b><br/>${rider?.name || ''}<br/>${rider?.phone || ''}`)
+      );
+      pointsForBounds.push([riderLat, riderLng]);
     }
 
     if (hasCustomer) {
-      const customerMarker = L.circleMarker([customerLat, customerLng], {
-        radius: 10, color: '#8c1d18', fillColor: '#d13a30', fillOpacity: .95, weight: 4
-      }).addTo(map).bindPopup(`<b>Cliente</b><br/>${order?.address || ''}`);
-      layersRef.current.push(customerMarker);
-      points.push([customerLat, customerLng]);
+      addLayer(
+        L.circleMarker([customerLat, customerLng], {
+          pane: 'trackingMarkerPane',
+          radius: 12,
+          color: '#7f1d1d',
+          fillColor: '#ef4444',
+          fillOpacity: 1,
+          weight: 5
+        })
+          .addTo(map)
+          .bindPopup(`<b>Cliente</b><br/>${order?.address || ''}`)
+      );
+      pointsForBounds.push([customerLat, customerLng]);
     }
 
-    if (hasRider && hasCustomer) {
-      const routeCoords = roadRoute?.coords?.length
-        ? roadRoute.coords
-        : [[riderLat, riderLng], [customerLat, customerLng]];
-      const riderToCustomer = L.polyline(routeCoords, {
-        color: '#b3261e', weight: 5, opacity: .92, lineJoin: 'round'
-      }).addTo(map);
-      layersRef.current.push(riderToCustomer);
-      routeLayerRef.current = riderToCustomer;
+    if (hasRider) {
+      addLayer(
+        L.polyline([
+          [RESTAURANT_COORD.lat, RESTAURANT_COORD.lng],
+          [riderLat, riderLng]
+        ], {
+          pane: 'routeMainPane',
+          color: '#16a34a',
+          weight: 5,
+          opacity: .9,
+          dashArray: '10 12'
+        }).addTo(map)
+      );
     }
 
-    if (points.length > 1) map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 16 });
-    else map.setView([RESTAURANT_COORD.lat, RESTAURANT_COORD.lng], 14);
-  }, [order?.order_code, order?.address, riderLat, riderLng, customerLat, customerLng, roadRoute]);
+    async function drawCurrentRoute() {
+      if (hasRider && hasCustomer) {
+        let routePoints = [
+          [riderLat, riderLng],
+          [customerLat, customerLng]
+        ];
 
-  const locationWarning = order?.location_warning || (!hasCustomer && order?.delivery_type === 'delivery'
-    ? 'La dirección existe, pero sus coordenadas no son válidas para Salamanca. Selecciona nuevamente la dirección desde las sugerencias.'
-    : '');
+        try {
+          const route = await fetchRouteBetween(
+            riderLat,
+            riderLng,
+            customerLat,
+            customerLng
+          );
+          if (requestId !== routeRequestRef.current) return;
+          if (route.points.length > 1) routePoints = route.points;
+        } catch (error) {
+          console.warn('Rider-customer road route unavailable; using direct line.', error);
+        }
+
+        if (requestId !== routeRequestRef.current) return;
+
+        addLayer(
+          L.polyline(routePoints, {
+            pane: 'routeShadowPane',
+            color: '#ffffff',
+            weight: 12,
+            opacity: .96,
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map)
+        );
+
+        addLayer(
+          L.polyline(routePoints, {
+            pane: 'routeMainPane',
+            color: '#dc2626',
+            weight: 7,
+            opacity: 1,
+            lineCap: 'round',
+            lineJoin: 'round'
+          })
+            .addTo(map)
+            .bindPopup('<b>Ruta actual</b><br/>Repartidor → Cliente')
+        );
+      } else if (!hasRider && hasCustomer) {
+        addLayer(
+          L.polyline([
+            [RESTAURANT_COORD.lat, RESTAURANT_COORD.lng],
+            [customerLat, customerLng]
+          ], {
+            pane: 'routeMainPane',
+            color: '#f59e0b',
+            weight: 6,
+            opacity: 1,
+            dashArray: '10 10'
+          }).addTo(map)
+        );
+      }
+
+      if (pointsForBounds.length > 1) {
+        map.fitBounds(L.latLngBounds(pointsForBounds), {
+          paddingTopLeft: [40, 210],
+          paddingBottomRight: [40, 40],
+          maxZoom: 17
+        });
+      } else {
+        map.setView([RESTAURANT_COORD.lat, RESTAURANT_COORD.lng], 14);
+      }
+    }
+
+    drawCurrentRoute();
+
+    return () => {
+      routeRequestRef.current += 1;
+    };
+  }, [
+    order?.order_code,
+    riderLat,
+    riderLng,
+    customerLat,
+    customerLng,
+    rider?.name,
+    rider?.phone,
+    order?.address
+  ]);
 
   return <div className={compact ? 'tracking-map compact' : 'tracking-map'}>
     <div ref={boxRef} className="tracking-map-box"></div>
@@ -1772,20 +1873,37 @@ function TrackingMap({ order, compact = false }) {
         <span className="tracking-route-pill tracking-route-pill-rider">Repartidor</span>
         <span className="tracking-route-pill tracking-route-pill-customer">Cliente</span>
       </div>
+
       <div className="tracking-route-summary-grid">
-        <div><small>Ruta actual</small><b>{hasRider && hasCustomer ? 'Repartidor → Cliente' : 'Esperando posiciones válidas'}</b></div>
-        <div><small>Restaurante → repartidor</small><b>{formatKm(restaurantToRiderKm)}</b></div>
-        <div><small>Repartidor → cliente</small><b>{formatKm(riderToCustomerKm)}</b></div>
-        <div><small>Tiempo estimado</small><b>{routeLoading ? 'Calculando...' : formatMinutes(roadRoute?.durationMin)}</b></div>
+        <div>
+          <small>Ruta actual</small>
+          <b>{routeLabel}</b>
+        </div>
+        <div>
+          <small>Restaurante → repartidor</small>
+          <b>{formatKm(restaurantToRiderKm)}</b>
+        </div>
+        <div>
+          <small>Repartidor → cliente</small>
+          <b>{formatKm(riderToCustomerKm)}</b>
+        </div>
+        <div>
+          <small>Color de la ruta</small>
+          <b className="tracking-current-route-label">Línea roja gruesa</b>
+        </div>
       </div>
-      <p className="tracking-route-caption">La línea roja sigue la ruta de conducción entre el repartidor y el cliente. La línea verde discontinua muestra la conexión del restaurante con el repartidor.</p>
+
+      <p className="tracking-route-caption">
+        La ruta roja gruesa sigue las calles desde la ubicación actual del repartidor hasta el cliente. La línea verde discontinua conecta el restaurante con el repartidor.
+      </p>
     </div>
 
-    {(customerPoint.corrected || riderPoint.corrected || order?.coordinates_corrected || order?.rider_coordinates_corrected) && <div className="tracking-coordinate-warning success">Las coordenadas invertidas se corrigieron automáticamente.</div>}
-    {locationWarning && <div className="tracking-coordinate-warning">{locationWarning}</div>}
-    {!hasRider && <div className="tracking-map-note">Todavía no hay una ubicación GPS válida del repartidor.</div>}
+    {!hasRider && <div className="tracking-map-note">
+      Todavía no hay ubicación GPS válida del repartidor. La ruta roja aparecerá automáticamente en cuanto el repartidor comparta su posición.
+    </div>}
   </div>;
 }
+
 
 function TrackOrderApp() {
   usePageChrome();
