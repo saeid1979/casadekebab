@@ -11,8 +11,8 @@ from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage
-from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer
+from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage, OrderChatMessage, OrderReview
+from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer, OrderChatMessageSerializer, OrderReviewSerializer
 from .notifications import send_telegram_message, build_order_message, send_customer_order_sms, queue_sms
 
 
@@ -239,8 +239,52 @@ def public_order_tracking(request):
     clean_order_phone = ''.join(ch for ch in order.customer_phone if ch.isdigit())
     if clean_input_phone and clean_order_phone and not clean_order_phone.endswith(clean_input_phone[-9:]):
         return Response({'detail': 'El teléfono no coincide con el pedido.'}, status=status.HTTP_403_FORBIDDEN)
+    def normalize_point(latitude, longitude):
+        if latitude is None or longitude is None:
+            return None, None, False, False
+        lat = float(latitude)
+        lng = float(longitude)
+        normal = 40.80 <= lat <= 41.12 and -5.90 <= lng <= -5.35
+        swapped = 40.80 <= lng <= 41.12 and -5.90 <= lat <= -5.35
+        if normal:
+            return latitude, longitude, True, False
+        if swapped:
+            return longitude, latitude, True, True
+        return None, None, False, False
+
+    order_lat, order_lng, order_valid, order_swapped = normalize_point(
+        order.delivery_latitude, order.delivery_longitude
+    )
+    if order_swapped:
+        order.delivery_latitude = order_lat
+        order.delivery_longitude = order_lng
+        order.save(update_fields=['delivery_latitude', 'delivery_longitude', 'updated_at'])
+
+    rider_corrected = False
+    if order.assigned_rider:
+        rider_lat, rider_lng, rider_valid, rider_swapped = normalize_point(
+            order.assigned_rider.current_latitude,
+            order.assigned_rider.current_longitude,
+        )
+        if rider_swapped:
+            order.assigned_rider.current_latitude = rider_lat
+            order.assigned_rider.current_longitude = rider_lng
+            order.assigned_rider.save(update_fields=['current_latitude', 'current_longitude', 'last_location_at'])
+            rider_corrected = True
+
     payload = OrderSerializer(order).data
-    payload['tracking_enabled'] = bool(order.assigned_rider and order.assigned_rider.current_latitude and order.assigned_rider.current_longitude)
+    if not order_valid and order.delivery_type == Order.DELIVERY_DELIVERY:
+        payload['delivery_latitude'] = None
+        payload['delivery_longitude'] = None
+        payload['location_warning'] = 'La dirección existe, pero las coordenadas antiguas no son válidas para Salamanca.'
+
+    payload['coordinates_corrected'] = bool(order_swapped)
+    payload['rider_coordinates_corrected'] = rider_corrected
+    payload['tracking_enabled'] = bool(
+        order.assigned_rider
+        and order.assigned_rider.current_latitude is not None
+        and order.assigned_rider.current_longitude is not None
+    )
     payload['restaurant_location'] = {'latitude': '40.974836942683254', 'longitude': '-5.649336331469509'}
     return Response(payload)
 
@@ -879,6 +923,120 @@ def online_payment_status(request, order_code):
         return Response({'detail': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
     return Response(OrderSerializer(order).data)
 
+
+
+
+def _digits(value):
+    return ''.join(ch for ch in str(value or '') if ch.isdigit())
+
+
+def _phone_matches(left, right):
+    a, b = _digits(left), _digits(right)
+    return bool(a and b and a[-9:] == b[-9:])
+
+
+def _get_customer_order(order_code, phone):
+    try:
+        order = Order.objects.select_related('assigned_rider').get(order_code__iexact=str(order_code or '').strip())
+    except Order.DoesNotExist:
+        return None, Response({'detail': 'Pedido no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+    if not _phone_matches(order.customer_phone, phone):
+        return None, Response({'detail': 'El teléfono no coincide con el pedido.'}, status=status.HTTP_403_FORBIDDEN)
+    return order, None
+
+
+@api_view(['GET'])
+def order_tracking_location(request, order_code):
+    order, error = _get_customer_order(order_code, request.query_params.get('phone'))
+    if error:
+        return error
+    rider = order.assigned_rider
+    location = None
+    if order.status == Order.STATUS_OUT_FOR_DELIVERY and rider and rider.current_latitude is not None and rider.current_longitude is not None:
+        location = {
+            'latitude': str(rider.current_latitude),
+            'longitude': str(rider.current_longitude),
+            'updated_at': rider.last_location_at,
+            'rider_name': rider.name,
+        }
+    return Response({
+        'order_code': order.order_code,
+        'status': order.status,
+        'location': location,
+        'delivered': order.status == Order.STATUS_DELIVERED,
+    })
+
+
+def _chat_actor_allowed(request, order, sender_type):
+    if sender_type == OrderChatMessage.SENDER_ADMIN:
+        user = get_admin_user_from_request(request)
+        return bool(user), (user.get_username() if user else '')
+    actor_phone = request.data.get('phone') if request.method == 'POST' else request.query_params.get('phone')
+    if sender_type == OrderChatMessage.SENDER_CUSTOMER:
+        return _phone_matches(order.customer_phone, actor_phone), order.customer_name or 'Cliente'
+    if sender_type == OrderChatMessage.SENDER_RIDER:
+        rider = order.assigned_rider
+        return bool(rider and _phone_matches(rider.phone, actor_phone)), (rider.name if rider else '')
+    return False, ''
+
+
+@api_view(['GET', 'POST'])
+def order_chat(request, order_code):
+    try:
+        order = Order.objects.select_related('assigned_rider').get(order_code__iexact=order_code)
+    except Order.DoesNotExist:
+        return Response({'detail': 'Pedido no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+    sender_type = str((request.data if request.method == 'POST' else request.query_params).get('sender_type', 'customer')).strip().lower()
+    allowed, sender_name = _chat_actor_allowed(request, order, sender_type)
+    if not allowed:
+        return Response({'detail': 'No autorizado para este chat.'}, status=status.HTTP_403_FORBIDDEN)
+
+    is_admin = sender_type == OrderChatMessage.SENDER_ADMIN
+    if order.status == Order.STATUS_DELIVERED and not is_admin:
+        return Response({'messages': [], 'chat_closed': True, 'detail': 'El chat se oculta después de la entrega.'})
+
+    if request.method == 'GET':
+        rows = order.chat_messages.all()
+        return Response({'messages': OrderChatMessageSerializer(rows, many=True).data, 'chat_closed': False})
+
+    message = str(request.data.get('message', '') or '').strip()
+    if not message:
+        return Response({'detail': 'El mensaje está vacío.'}, status=status.HTTP_400_BAD_REQUEST)
+    row = OrderChatMessage.objects.create(order=order, sender_type=sender_type, sender_name=sender_name, message=message[:1200])
+    return Response(OrderChatMessageSerializer(row).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+def create_order_review(request):
+    order, error = _get_customer_order(request.data.get('order_code'), request.data.get('phone'))
+    if error:
+        return error
+    if order.status != Order.STATUS_DELIVERED:
+        return Response({'detail': 'La opinión se puede enviar después de la entrega.'}, status=status.HTTP_400_BAD_REQUEST)
+    if hasattr(order, 'review'):
+        return Response({'detail': 'Ya existe una opinión para este pedido.'}, status=status.HTTP_409_CONFLICT)
+    try:
+        rating = int(request.data.get('rating', 0))
+    except (TypeError, ValueError):
+        rating = 0
+    comment = str(request.data.get('comment', '') or '').strip()
+    if rating < 1 or rating > 5 or not comment:
+        return Response({'detail': 'Selecciona de 1 a 5 estrellas y escribe tu opinión.'}, status=status.HTTP_400_BAD_REQUEST)
+    row = OrderReview.objects.create(
+        order=order,
+        customer_name=order.customer_name or 'Cliente',
+        customer_phone=order.customer_phone,
+        rating=rating,
+        comment=comment[:1200],
+    )
+    return Response({'success': True, 'message': 'Opinión enviada y pendiente de aprobación.', 'review': OrderReviewSerializer(row).data}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+def public_reviews(request):
+    rows = OrderReview.objects.filter(status=OrderReview.STATUS_APPROVED).select_related('order').order_by('-approved_at', '-created_at')[:30]
+    return Response(OrderReviewSerializer(rows, many=True).data)
 
 def _gateway_authorized(request):
     expected = str(getattr(settings, 'SMS_GATEWAY_TOKEN', '') or '').strip()

@@ -1522,16 +1522,37 @@ function TrackingMap({ order, compact = false }) {
   const boxRef = useRef(null);
   const mapRef = useRef(null);
   const layersRef = useRef([]);
-  const rider = order?.assigned_rider_data;
+  const routeLayerRef = useRef(null);
+  const [roadRoute, setRoadRoute] = useState(null);
+  const [routeLoading, setRouteLoading] = useState(false);
 
   function toNumber(value) {
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   }
 
+  function isSalamancaPoint(lat, lng) {
+    return lat !== null && lng !== null &&
+      lat >= 40.80 && lat <= 41.12 &&
+      lng >= -5.90 && lng <= -5.35;
+  }
+
+  function normalizePoint(rawLat, rawLng) {
+    const lat = toNumber(rawLat);
+    const lng = toNumber(rawLng);
+    if (isSalamancaPoint(lat, lng)) return { lat, lng, valid: true, corrected: false };
+    if (isSalamancaPoint(lng, lat)) return { lat: lng, lng: lat, valid: true, corrected: true };
+    return { lat: null, lng: null, valid: false, corrected: false };
+  }
+
   function formatKm(value) {
     if (value === null || value === undefined || Number.isNaN(value)) return '—';
     return `${value.toFixed(value < 10 ? 2 : 1)} km`;
+  }
+
+  function formatMinutes(value) {
+    if (value === null || value === undefined || Number.isNaN(value)) return '—';
+    return `${Math.max(1, Math.round(value))} min`;
   }
 
   function distanceKm(aLat, aLng, bLat, bLng) {
@@ -1544,33 +1565,20 @@ function TrackingMap({ order, compact = false }) {
     return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
   }
 
-  const riderLat = toNumber(rider?.current_latitude);
-  const riderLng = toNumber(rider?.current_longitude);
-  const customerLat = toNumber(order?.delivery_latitude);
-  const customerLng = toNumber(order?.delivery_longitude);
+  const rider = order?.assigned_rider_data;
+  const riderPoint = normalizePoint(rider?.current_latitude, rider?.current_longitude);
+  const customerPoint = normalizePoint(order?.delivery_latitude, order?.delivery_longitude);
 
-  const hasRider = riderLat !== null && riderLng !== null;
-  const hasCustomer = customerLat !== null && customerLng !== null;
+  const riderLat = riderPoint.lat;
+  const riderLng = riderPoint.lng;
+  const customerLat = customerPoint.lat;
+  const customerLng = customerPoint.lng;
+  const hasRider = riderPoint.valid;
+  const hasCustomer = customerPoint.valid;
 
   const restaurantToRiderKm = hasRider ? distanceKm(RESTAURANT_COORD.lat, RESTAURANT_COORD.lng, riderLat, riderLng) : null;
-  const riderToCustomerKm = hasRider && hasCustomer ? distanceKm(riderLat, riderLng, customerLat, customerLng) : null;
-  const restaurantToCustomerKm = hasCustomer ? distanceKm(RESTAURANT_COORD.lat, RESTAURANT_COORD.lng, customerLat, customerLng) : null;
-
-  const routeLabel = hasRider && hasCustomer
-    ? 'Restaurante → Repartidor → Cliente'
-    : hasRider
-      ? 'Restaurante → Repartidor'
-      : hasCustomer
-        ? 'Restaurante → Cliente'
-        : 'Esperando ubicación del repartidor';
-
-  const routeHint = hasRider && hasCustomer
-    ? 'La línea roja muestra el tramo actual entre el repartidor y el cliente. La línea verde discontinua conecta el restaurante con la última ubicación del repartidor.'
-    : hasRider
-      ? 'El repartidor ya está compartiendo su ubicación. Cuando el pedido tenga coordenadas de entrega, verás también el tramo hasta el cliente.'
-      : hasCustomer
-        ? 'Ya tenemos la ubicación de entrega. El mapa mostrará el trayecto completo cuando el repartidor comparta su GPS.'
-        : 'Todavía no hay coordenadas suficientes para dibujar la ruta.';
+  const riderToCustomerStraightKm = hasRider && hasCustomer ? distanceKm(riderLat, riderLng, customerLat, customerLng) : null;
+  const riderToCustomerKm = roadRoute?.distanceKm ?? riderToCustomerStraightKm;
 
   useEffect(() => {
     if (!boxRef.current || mapRef.current) return;
@@ -1584,10 +1592,41 @@ function TrackingMap({ order, compact = false }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    async function loadRoadRoute() {
+      if (!hasRider || !hasCustomer) {
+        setRoadRoute(null);
+        return;
+      }
+      setRouteLoading(true);
+      try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${riderLng},${riderLat};${customerLng},${customerLat}?overview=full&geometries=geojson&steps=false`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('route failed');
+        const data = await response.json();
+        const route = data?.routes?.[0];
+        if (!route || cancelled) return;
+        setRoadRoute({
+          coords: (route.geometry?.coordinates || []).map(([lng, lat]) => [lat, lng]),
+          distanceKm: route.distance / 1000,
+          durationMin: route.duration / 60
+        });
+      } catch (err) {
+        if (!cancelled) setRoadRoute(null);
+      } finally {
+        if (!cancelled) setRouteLoading(false);
+      }
+    }
+    loadRoadRoute();
+    return () => { cancelled = true; };
+  }, [riderLat, riderLng, customerLat, customerLng, hasRider, hasCustomer]);
+
+  useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     layersRef.current.forEach(layer => map.removeLayer(layer));
     layersRef.current = [];
+    routeLayerRef.current = null;
     const points = [];
 
     const restaurantIcon = L.divIcon({
@@ -1606,68 +1645,44 @@ function TrackingMap({ order, compact = false }) {
 
     if (hasRider) {
       const riderMarker = L.circleMarker([riderLat, riderLng], {
-        radius: 11,
-        color: '#0b6b35',
-        fillColor: '#21b15c',
-        fillOpacity: .95,
-        weight: 4
+        radius: 11, color: '#0b6b35', fillColor: '#21b15c', fillOpacity: .95, weight: 4
       }).addTo(map).bindPopup(`<b>Repartidor</b><br/>${rider?.name || ''}<br/>${rider?.phone || ''}`);
       layersRef.current.push(riderMarker);
       points.push([riderLat, riderLng]);
+
+      const restaurantToRider = L.polyline([
+        [RESTAURANT_COORD.lat, RESTAURANT_COORD.lng],
+        [riderLat, riderLng]
+      ], { color: '#149c49', weight: 4, opacity: .7, dashArray: '6 10' }).addTo(map);
+      layersRef.current.push(restaurantToRider);
     }
 
     if (hasCustomer) {
       const customerMarker = L.circleMarker([customerLat, customerLng], {
-        radius: 10,
-        color: '#8c1d18',
-        fillColor: '#d13a30',
-        fillOpacity: .95,
-        weight: 4
+        radius: 10, color: '#8c1d18', fillColor: '#d13a30', fillOpacity: .95, weight: 4
       }).addTo(map).bindPopup(`<b>Cliente</b><br/>${order?.address || ''}`);
       layersRef.current.push(customerMarker);
       points.push([customerLat, customerLng]);
     }
 
-    if (hasRider) {
-      const restaurantToRider = L.polyline([
-        [RESTAURANT_COORD.lat, RESTAURANT_COORD.lng],
-        [riderLat, riderLng]
-      ], {
-        color: '#149c49',
-        weight: 4,
-        opacity: .7,
-        dashArray: '6 10'
-      }).addTo(map);
-      layersRef.current.push(restaurantToRider);
-    }
-
     if (hasRider && hasCustomer) {
-      const riderToCustomer = L.polyline([
-        [riderLat, riderLng],
-        [customerLat, customerLng]
-      ], {
-        color: '#b3261e',
-        weight: 5,
-        opacity: .9,
-        lineJoin: 'round'
+      const routeCoords = roadRoute?.coords?.length
+        ? roadRoute.coords
+        : [[riderLat, riderLng], [customerLat, customerLng]];
+      const riderToCustomer = L.polyline(routeCoords, {
+        color: '#b3261e', weight: 5, opacity: .92, lineJoin: 'round'
       }).addTo(map);
       layersRef.current.push(riderToCustomer);
-    } else if (!hasRider && hasCustomer) {
-      const restaurantToCustomer = L.polyline([
-        [RESTAURANT_COORD.lat, RESTAURANT_COORD.lng],
-        [customerLat, customerLng]
-      ], {
-        color: '#d38a14',
-        weight: 4,
-        opacity: .75,
-        dashArray: '8 10'
-      }).addTo(map);
-      layersRef.current.push(restaurantToCustomer);
+      routeLayerRef.current = riderToCustomer;
     }
 
-    if (points.length > 1) map.fitBounds(L.latLngBounds(points), { padding: [36, 36], maxZoom: 16 });
+    if (points.length > 1) map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 16 });
     else map.setView([RESTAURANT_COORD.lat, RESTAURANT_COORD.lng], 14);
-  }, [order?.order_code, riderLat, riderLng, customerLat, customerLng, rider?.name, rider?.phone, order?.address]);
+  }, [order?.order_code, order?.address, riderLat, riderLng, customerLat, customerLng, roadRoute]);
+
+  const locationWarning = order?.location_warning || (!hasCustomer && order?.delivery_type === 'delivery'
+    ? 'La dirección existe, pero sus coordenadas no son válidas para Salamanca. Selecciona nuevamente la dirección desde las sugerencias.'
+    : '');
 
   return <div className={compact ? 'tracking-map compact' : 'tracking-map'}>
     <div ref={boxRef} className="tracking-map-box"></div>
@@ -1679,30 +1694,19 @@ function TrackingMap({ order, compact = false }) {
         <span className="tracking-route-pill tracking-route-pill-customer">Cliente</span>
       </div>
       <div className="tracking-route-summary-grid">
-        <div>
-          <small>Ruta mostrada</small>
-          <b>{routeLabel}</b>
-        </div>
-        <div>
-          <small>Restaurante → repartidor</small>
-          <b>{formatKm(restaurantToRiderKm)}</b>
-        </div>
-        <div>
-          <small>Repartidor → cliente</small>
-          <b>{formatKm(riderToCustomerKm)}</b>
-        </div>
-        <div>
-          <small>Restaurante → cliente</small>
-          <b>{formatKm(restaurantToCustomerKm)}</b>
-        </div>
+        <div><small>Ruta actual</small><b>{hasRider && hasCustomer ? 'Repartidor → Cliente' : 'Esperando posiciones válidas'}</b></div>
+        <div><small>Restaurante → repartidor</small><b>{formatKm(restaurantToRiderKm)}</b></div>
+        <div><small>Repartidor → cliente</small><b>{formatKm(riderToCustomerKm)}</b></div>
+        <div><small>Tiempo estimado</small><b>{routeLoading ? 'Calculando...' : formatMinutes(roadRoute?.durationMin)}</b></div>
       </div>
-      <p className="tracking-route-caption">{routeHint}</p>
+      <p className="tracking-route-caption">La línea roja sigue la ruta de conducción entre el repartidor y el cliente. La línea verde discontinua muestra la conexión del restaurante con el repartidor.</p>
     </div>
 
-    {!hasRider && <div className="tracking-map-note">Todavía no hay ubicación GPS del repartidor. En cuanto el repartidor comparta la ubicación, el mapa dibujará automáticamente la ruta hasta el cliente.</div>}
+    {(customerPoint.corrected || riderPoint.corrected || order?.coordinates_corrected || order?.rider_coordinates_corrected) && <div className="tracking-coordinate-warning success">Las coordenadas invertidas se corrigieron automáticamente.</div>}
+    {locationWarning && <div className="tracking-coordinate-warning">{locationWarning}</div>}
+    {!hasRider && <div className="tracking-map-note">Todavía no hay una ubicación GPS válida del repartidor.</div>}
   </div>;
 }
-
 
 function TrackOrderApp() {
   usePageChrome();

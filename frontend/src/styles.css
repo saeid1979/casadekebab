@@ -2053,3 +2053,8 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
 .tracking-map.compact{padding-top:158px}
 @media(max-width:900px){.tracking-route-panel{left:10px;right:10px;top:10px;padding:10px 11px}.tracking-route-summary-grid{grid-template-columns:1fr}.tracking-map{padding-top:238px}.tracking-map.compact{padding-top:228px}}
 
+
+
+/* exact-customer-location-fix-v2 */
+.tracking-coordinate-warning{position:absolute;left:14px;right:14px;bottom:14px;z-index:440;padding:12px 14px;border-radius:14px;border:1px solid #efb7b2;background:rgba(255,238,236,.97);color:#9b211a;font-size:14px;font-weight:700;line-height:1.6;box-shadow:0 10px 24px rgba(0,0,0,.10)}
+.tracking-coordinate-warning.success{border-color:#b9dfc5;background:rgba(235,250,240,.97);color:#176d38}

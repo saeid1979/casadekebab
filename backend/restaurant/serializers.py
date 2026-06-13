@@ -2,7 +2,41 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
-from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon
+from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, OrderChatMessage, OrderReview
+
+
+SALAMANCA_LAT_MIN = 40.80
+SALAMANCA_LAT_MAX = 41.12
+SALAMANCA_LNG_MIN = -5.90
+SALAMANCA_LNG_MAX = -5.35
+
+
+def normalize_salamanca_coordinates(latitude, longitude):
+    """Normalize a Salamanca point and repair a common lat/lng swap."""
+    if latitude is None or longitude is None:
+        return None, None
+
+    lat = Decimal(str(latitude))
+    lng = Decimal(str(longitude))
+
+    normal = (
+        Decimal(str(SALAMANCA_LAT_MIN)) <= lat <= Decimal(str(SALAMANCA_LAT_MAX))
+        and Decimal(str(SALAMANCA_LNG_MIN)) <= lng <= Decimal(str(SALAMANCA_LNG_MAX))
+    )
+    swapped = (
+        Decimal(str(SALAMANCA_LAT_MIN)) <= lng <= Decimal(str(SALAMANCA_LAT_MAX))
+        and Decimal(str(SALAMANCA_LNG_MIN)) <= lat <= Decimal(str(SALAMANCA_LNG_MAX))
+    )
+
+    if normal:
+        return lat, lng
+    if swapped:
+        return lng, lat
+
+    raise serializers.ValidationError({
+        'delivery_latitude': 'La ubicación seleccionada no corresponde a Salamanca.',
+        'delivery_longitude': 'Selecciona una dirección válida de Salamanca desde las sugerencias.'
+    })
 
 class MenuOptionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -87,8 +121,20 @@ class CreateOrderSerializer(serializers.Serializer):
     coupon_code = serializers.CharField(max_length=40, required=False, allow_blank=True)
 
     def validate(self, attrs):
-        if attrs['delivery_type'] == Order.DELIVERY_DELIVERY and not attrs.get('address'):
-            raise serializers.ValidationError({'address': 'Address is required for delivery orders.'})
+        if attrs['delivery_type'] == Order.DELIVERY_DELIVERY:
+            if not attrs.get('address'):
+                raise serializers.ValidationError({'address': 'Address is required for delivery orders.'})
+            if attrs.get('delivery_latitude') is None or attrs.get('delivery_longitude') is None:
+                raise serializers.ValidationError({
+                    'address': 'Selecciona una dirección válida de Salamanca desde las sugerencias para guardar su ubicación.'
+                })
+            latitude, longitude = normalize_salamanca_coordinates(
+                attrs.get('delivery_latitude'),
+                attrs.get('delivery_longitude'),
+            )
+            attrs['delivery_latitude'] = latitude
+            attrs['delivery_longitude'] = longitude
+
         if not attrs.get('items'):
             raise serializers.ValidationError({'items': 'Order must contain at least one item.'})
         return attrs
@@ -226,3 +272,20 @@ class CouponSerializer(serializers.ModelSerializer):
             'max_uses', 'used_count', 'created_at'
         ]
         read_only_fields = ['used_count', 'created_at']
+
+
+
+class OrderChatMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrderChatMessage
+        fields = ['id', 'sender_type', 'sender_name', 'message', 'is_read', 'created_at']
+        read_only_fields = ['id', 'is_read', 'created_at']
+
+
+class OrderReviewSerializer(serializers.ModelSerializer):
+    order_code = serializers.CharField(source='order.order_code', read_only=True)
+
+    class Meta:
+        model = OrderReview
+        fields = ['id', 'order_code', 'customer_name', 'rating', 'comment', 'status', 'created_at', 'approved_at']
+        read_only_fields = ['id', 'order_code', 'status', 'created_at', 'approved_at']
