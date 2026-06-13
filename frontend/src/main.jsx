@@ -1928,29 +1928,462 @@ function CustomerTrackingPanel({ defaultPhone='' }) {
   </section>;
 }
 
+
 function AccountApp() {
   usePageChrome();
-  const sessionPhone = getSessionCustomer()?.phone || localStorage.getItem('customer_phone') || '';
+  const sessionPhone = (typeof getSessionCustomer === 'function' ? (getSessionCustomer()?.phone || '') : '') || localStorage.getItem('customer_phone') || '';
   const [phone, setPhone] = useState(sessionPhone);
   const [customer, setCustomer] = useState(null);
   const [orders, setOrders] = useState([]);
   const [message, setMessage] = useState('');
-  const [tab, setTab] = useState('tracking');
+  const [activeTab, setActiveTab] = useState('tracking');
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [trackingCode, setTrackingCode] = useState('');
+  const [trackingOrder, setTrackingOrder] = useState(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatError, setChatError] = useState('');
+  const [chatClosed, setChatClosed] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewMessage, setReviewMessage] = useState('');
+  const statusLabels = {
+    pending: 'Pedido recibido',
+    accepted: 'Aceptado',
+    preparing: 'Preparando',
+    ready: 'Listo',
+    out_for_delivery: 'En camino',
+    delivered: 'Entregado',
+    cancelled: 'Cancelado'
+  };
+  const statusTone = {
+    pending: 'pending',
+    accepted: 'ok',
+    preparing: 'warm',
+    ready: 'warm',
+    out_for_delivery: 'ok',
+    delivered: 'done',
+    cancelled: 'danger'
+  };
+  const stepOrder = ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery', 'delivered'];
 
-  async function loadAccount() {
+  function digitsOnly(value) {
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  function formatDate(value) {
+    if (!value) return '-';
     try {
-      if (!phone || phone.replace(/\D/g, '').length < 9) return setMessage('Introduce un teléfono válido.');
+      return new Date(value).toLocaleString('es-ES');
+    } catch {
+      return value;
+    }
+  }
+
+  async function loadAccount(prefill = true) {
+    const cleanPhone = digitsOnly(phone);
+    if (cleanPhone.length < 9) {
+      setMessage('Introduce un teléfono válido para ver tu cuenta.');
+      return;
+    }
+    try {
+      setAccountLoading(true);
       localStorage.setItem('customer_phone', phone);
       const res = await axios.get(`${API_BASE}/customers/orders/`, { params: { phone } });
-      if (!res.data.exists) { setCustomer(null); setOrders([]); return setMessage('No hemos encontrado pedidos para este teléfono.'); }
-      setCustomer(res.data.customer); setOrders(res.data.orders || []); setMessage('');
-    } catch (err) { setMessage('No se pudo cargar la cuenta. Revisa el backend.'); }
+      if (!res.data.exists) {
+        setCustomer(null);
+        setOrders([]);
+        setTrackingOrder(null);
+        setChatMessages([]);
+        return setMessage('No hemos encontrado pedidos para este teléfono.');
+      }
+      const nextOrders = Array.isArray(res.data.orders) ? res.data.orders : [];
+      setCustomer(res.data.customer || null);
+      setOrders(nextOrders);
+      setMessage('');
+      if (prefill && nextOrders.length) {
+        setTrackingCode(prev => prev || nextOrders[0].order_code || '');
+      }
+    } catch (err) {
+      setMessage('No se pudo cargar la cuenta del cliente. Revisa el backend.');
+    } finally {
+      setAccountLoading(false);
+    }
   }
-  useEffect(() => { if (phone) loadAccount(); }, []);
-  const totalSpent = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
 
-  return <div><Header title="Mi cuenta" subtitle="Pedidos, seguimiento y opiniones"><button dataRoles="guest,customer,rider,staff,admin" onClick={() => window.location.href='/'}>Sitio</button></Header>{message && <div className="toast">{message}</div>}<main className="orders-page account-page"><h1>Cuenta del cliente</h1><div className="account-tabs"><button className={tab==='tracking'?'active':''} onClick={() => setTab('tracking')}>Seguimiento en vivo</button><button className={tab==='history'?'active':''} onClick={() => setTab('history')}>Historial</button></div>{tab === 'tracking' && <CustomerTrackingPanel defaultPhone={phone}/>} {tab === 'history' && <><div className="rider-login"><input placeholder="Teléfono" value={phone} onChange={e => setPhone(e.target.value)}/><button onClick={loadAccount}>Buscar</button></div>{customer && <section className="summary-cards"><div><b>{customer.name || 'Cliente'}</b><span>{customer.phone}</span></div><div><b>{customer.total_orders}</b><span>Pedidos registrados</span></div><div><b>{money(totalSpent)}</b><span>Gasto total</span></div><div><b>{customer.default_address || 'Sin dirección'}</b><span>Última dirección</span></div></section>}<div className="orders-grid">{orders.map(order => <article className={`order-card status-${order.status}`} key={order.id}><div className="order-head"><h2>{order.order_code}</h2><strong>{money(order.total)}</strong></div><p><b>Estado:</b> {ORDER_STATUS_LABELS[order.status] || order.status}</p><p><b>Pago:</b> {order.payment_method} · {order.payment_status}</p><p><b>Fecha:</b> {new Date(order.created_at).toLocaleString('es-ES')}</p><div className="order-items">{(order.items || []).map(item => <div key={item.id}>{item.quantity} x {item.name_snapshot}<span>{money(item.total)}</span></div>)}</div><button className="mini-action" onClick={() => { setTab('tracking'); }}>Seguir pedido</button> <button className="mini-action" onClick={() => window.open(`/receipt/${order.order_code}`, '_blank')}>Ver ticket</button></article>)}</div></>}</main></div>;
+  async function loadTracking(codeArg = trackingCode, silent = false) {
+    const code = String(codeArg || '').trim().toUpperCase();
+    if (!code) {
+      if (!silent) setMessage('Escribe el número de pedido para ver el seguimiento.');
+      return;
+    }
+    if (digitsOnly(phone).length < 9) {
+      if (!silent) setMessage('Introduce primero un teléfono válido.');
+      return;
+    }
+    try {
+      setTrackingLoading(true);
+      const res = await axios.get(`${API_BASE}/orders/track/`, { params: { order_code: code, phone } });
+      setTrackingOrder(res.data);
+      setTrackingCode(code);
+      setMessage('');
+      setReviewMessage('');
+    } catch (err) {
+      setTrackingOrder(null);
+      setChatMessages([]);
+      setChatClosed(false);
+      if (!silent) setMessage(err?.response?.data?.detail || 'No se pudo cargar el seguimiento del pedido.');
+    } finally {
+      setTrackingLoading(false);
+    }
+  }
+
+  async function loadChat(silent = true) {
+    if (!trackingOrder?.order_code) return;
+    try {
+      const res = await axios.get(`${API_BASE}/orders/${encodeURIComponent(trackingOrder.order_code)}/chat/`, {
+        params: { phone, sender_type: 'customer' }
+      });
+      setChatMessages(Array.isArray(res.data?.messages) ? res.data.messages : []);
+      setChatClosed(Boolean(res.data?.chat_closed));
+      setChatError('');
+    } catch (err) {
+      if (!silent) setChatError(err?.response?.data?.detail || 'No se pudo cargar el chat.');
+    }
+  }
+
+  async function sendChatMessage() {
+    const value = chatDraft.trim();
+    if (!value || !trackingOrder?.order_code || chatClosed) return;
+    try {
+      await axios.post(`${API_BASE}/orders/${encodeURIComponent(trackingOrder.order_code)}/chat/`, {
+        phone,
+        sender_type: 'customer',
+        message: value
+      });
+      setChatDraft('');
+      await loadChat(false);
+    } catch (err) {
+      setChatError(err?.response?.data?.detail || 'No se pudo enviar el mensaje.');
+    }
+  }
+
+  async function submitReview() {
+    if (!trackingOrder?.order_code || !reviewComment.trim()) return;
+    try {
+      const res = await axios.post(`${API_BASE}/reviews/`, {
+        order_code: trackingOrder.order_code,
+        phone,
+        rating: reviewRating,
+        comment: reviewComment
+      });
+      setReviewMessage(res.data?.message || 'Opinión enviada correctamente.');
+      setReviewComment('');
+    } catch (err) {
+      setReviewMessage(err?.response?.data?.detail || 'No se pudo enviar la opinión.');
+    }
+  }
+
+  function openOrder(order) {
+    if (!order?.order_code) return;
+    setActiveTab('tracking');
+    setTrackingCode(order.order_code);
+    setTrackingOrder(order);
+    loadTracking(order.order_code, false);
+  }
+
+  useEffect(() => {
+    if (digitsOnly(phone).length >= 9) loadAccount(true);
+  }, []);
+
+  useEffect(() => {
+    if (!trackingOrder?.order_code || activeTab !== 'tracking') return;
+    loadChat(true);
+    const timer = setInterval(() => {
+      loadTracking(trackingOrder.order_code, true);
+      loadChat(true);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [trackingOrder?.order_code, phone, activeTab]);
+
+  const totalSpent = orders.reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const lastOrder = orders[0] || null;
+  const currentStep = trackingOrder ? stepOrder.indexOf(trackingOrder.status) : -1;
+
+  return <div>
+    <Header title="Mi cuenta" subtitle="Seguimiento, chat y pedidos del cliente">
+      <button dataRoles="guest,customer,rider,staff,admin" onClick={() => window.location.href='/'}>Sitio</button>
+      <button dataRoles="staff,admin" onClick={() => window.location.href='/orders-live'}>Pedidos</button>
+    </Header>
+    {message && <div className="toast">{message}</div>}
+
+    <main className="orders-page account-pro-page">
+      <section className="account-pro-hero">
+        <div className="account-pro-copy">
+          <span className="account-pro-kicker">Área de cliente</span>
+          <h1>Gestiona tus pedidos con una vista profesional</h1>
+          <p>Consulta el estado del pedido, abre el mapa en vivo del repartidor, escribe por chat y revisa tu historial desde una sola pantalla.</p>
+          <div className="account-pro-highlights">
+            <span>Actualización automática cada 5 segundos</span>
+            <span>Ubicación del repartidor en tiempo real</span>
+            <span>Chat directo cliente · repartidor · restaurante</span>
+          </div>
+        </div>
+
+        <div className="account-pro-lookup">
+          <div className="account-pro-card-head">
+            <h2>Identificación del cliente</h2>
+            <small>Usa tu teléfono para cargar tu cuenta</small>
+          </div>
+          <div className="account-pro-form-row">
+            <input
+              className="account-pro-input"
+              placeholder="Teléfono del cliente"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+            />
+            <button className="account-pro-primary" disabled={accountLoading} onClick={() => loadAccount(true)}>
+              {accountLoading ? 'Cargando...' : 'Cargar cuenta'}
+            </button>
+          </div>
+          <div className="account-pro-mini-stats">
+            <div><b>{customer?.total_orders || orders.length || 0}</b><span>Pedidos</span></div>
+            <div><b>{money(totalSpent)}</b><span>Total gastado</span></div>
+            <div><b>{lastOrder?.order_code || '-'}</b><span>Último pedido</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section className="account-pro-shell">
+        <aside className="account-pro-sidebar">
+          <div className="account-pro-profile-card">
+            <div className="account-pro-avatar-wrap"><img src={restaurantLogo} alt="Casa de Kebab Turco" /></div>
+            <div>
+              <h3>{customer?.name || 'Cliente'}</h3>
+              <p>{customer?.phone || phone || 'Sin teléfono'}</p>
+              <small>{customer?.default_address || 'Todavía no hay dirección guardada.'}</small>
+            </div>
+          </div>
+
+          <div className="account-pro-tabs">
+            <button className={activeTab === 'tracking' ? 'active' : ''} onClick={() => setActiveTab('tracking')}>
+              <b>Seguimiento en vivo</b>
+              <span>Mapa, estado y chat del pedido</span>
+            </button>
+            <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>
+              <b>Historial de pedidos</b>
+              <span>Resumen y acceso rápido a tickets</span>
+            </button>
+          </div>
+
+          <div className="account-pro-recent-card">
+            <div className="account-pro-card-head">
+              <h3>Pedidos recientes</h3>
+              <small>Acceso rápido</small>
+            </div>
+            <div className="account-pro-recent-list">
+              {orders.slice(0, 5).map(order => <button key={order.order_code} className="account-pro-recent-order" onClick={() => openOrder(order)}>
+                <div>
+                  <b>{order.order_code}</b>
+                  <span>{statusLabels[order.status] || order.status}</span>
+                </div>
+                <strong>{money(order.total)}</strong>
+              </button>)}
+              {!orders.length && <div className="account-pro-empty-side">Aún no hay pedidos para este teléfono.</div>}
+            </div>
+          </div>
+        </aside>
+
+        <section className="account-pro-content">
+          {activeTab === 'tracking' && <>
+            <div className="account-pro-toolbar">
+              <div className="account-pro-toolbar-copy">
+                <h2>Seguimiento del pedido</h2>
+                <p>Consulta el estado actual del pedido y sigue al repartidor sin recargar toda la página.</p>
+              </div>
+              <div className="account-pro-track-form">
+                <input
+                  className="account-pro-input"
+                  placeholder="Número de pedido: CDKT-000001"
+                  value={trackingCode}
+                  onChange={e => setTrackingCode(e.target.value.toUpperCase())}
+                />
+                <button className="account-pro-primary" disabled={trackingLoading} onClick={() => loadTracking(trackingCode, false)}>
+                  {trackingLoading ? 'Buscando...' : 'Ver seguimiento'}
+                </button>
+              </div>
+            </div>
+
+            {!trackingOrder ? <div className="account-pro-empty-state">
+              <div className="account-pro-empty-illustration">📦</div>
+              <h3>Selecciona un pedido para empezar</h3>
+              <p>Escribe el número del pedido o elige uno de tus pedidos recientes para abrir el mapa, el estado y el chat.</p>
+            </div> : <>
+              <div className="account-pro-grid-top">
+                <section className="account-pro-panel account-pro-status-panel">
+                  <div className="account-pro-card-head">
+                    <div>
+                      <small>Pedido activo</small>
+                      <h3>{trackingOrder.order_code}</h3>
+                    </div>
+                    <span className={`account-pro-status-badge ${statusTone[trackingOrder.status] || ''}`}>{statusLabels[trackingOrder.status] || trackingOrder.status}</span>
+                  </div>
+
+                  <div className="account-pro-timeline">
+                    {stepOrder.map((step, index) => <div key={step} className={index <= currentStep ? 'done' : ''}>
+                      <i></i>
+                      <span>{statusLabels[step]}</span>
+                    </div>)}
+                  </div>
+
+                  <div className="account-pro-meta-list">
+                    <div><span>Cliente</span><b>{trackingOrder.customer_name || 'Sin nombre'} · {trackingOrder.customer_phone}</b></div>
+                    <div><span>Tipo</span><b>{trackingOrder.delivery_type === 'delivery' ? 'Entrega a domicilio' : 'Recoger en tienda'}</b></div>
+                    <div><span>Pago</span><b>{trackingOrder.payment_method} · {trackingOrder.payment_status}</b></div>
+                    <div><span>Fecha</span><b>{formatDate(trackingOrder.created_at)}</b></div>
+                    <div><span>Dirección</span><b>{trackingOrder.address || 'Recogida en tienda'}</b></div>
+                    <div><span>Repartidor</span><b>{trackingOrder.assigned_rider_data ? `${trackingOrder.assigned_rider_data.name || 'Repartidor'} · ${trackingOrder.assigned_rider_data.phone || ''}` : 'Aún no asignado'}</b></div>
+                  </div>
+
+                  <div className="account-pro-action-row">
+                    <button className="account-pro-secondary" onClick={() => window.open(`/receipt/${trackingOrder.order_code}`, '_blank')}>Imprimir ticket</button>
+                    {trackingOrder.address && <button className="account-pro-secondary" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(trackingOrder.address)}`, '_blank')}>Abrir dirección</button>}
+                  </div>
+                </section>
+
+                <section className="account-pro-panel account-pro-map-panel">
+                  <div className="account-pro-card-head">
+                    <div>
+                      <h3>Mapa en vivo del repartidor</h3>
+                      <small>Solo el mapa se refresca de forma suave cada 5 segundos</small>
+                    </div>
+                    {trackingOrder.assigned_rider_data?.last_location_at && <span className="account-pro-live-chip">Actualizado {new Date(trackingOrder.assigned_rider_data.last_location_at).toLocaleTimeString('es-ES')}</span>}
+                  </div>
+                  <TrackingMap order={trackingOrder} />
+                </section>
+              </div>
+
+              <div className="account-pro-grid-bottom">
+                <section className="account-pro-panel account-pro-chat-panel">
+                  <div className="account-pro-card-head">
+                    <div>
+                      <h3>Chat del pedido</h3>
+                      <small>{chatClosed ? 'El chat se oculta después de la entrega' : 'Habla con el repartidor o con el restaurante'}</small>
+                    </div>
+                    <span className="account-pro-live-chip">Auto refresh</span>
+                  </div>
+
+                  {chatClosed ? <div className="account-pro-chat-closed">La conversación queda oculta para cliente y repartidor después de la entrega.</div> : <>
+                    <div className="account-pro-chat-list">
+                      {chatMessages.map(row => <div key={row.id} className={`account-pro-chat-bubble ${row.sender_type === 'customer' ? 'mine' : ''}`}>
+                        <b>{row.sender_name || row.sender_type}</b>
+                        <p>{row.message}</p>
+                        <small>{formatDate(row.created_at)}</small>
+                      </div>)}
+                      {!chatMessages.length && <div className="account-pro-chat-empty">Todavía no hay mensajes. Puedes enviar el primero.</div>}
+                    </div>
+                    <div className="account-pro-chat-compose">
+                      <input
+                        className="account-pro-input"
+                        value={chatDraft}
+                        onChange={e => setChatDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') sendChatMessage(); }}
+                        placeholder="Escribe tu mensaje..."
+                      />
+                      <button className="account-pro-primary" onClick={sendChatMessage}>Enviar</button>
+                    </div>
+                  </>}
+                  {chatError && <small className="account-pro-error">{chatError}</small>}
+                </section>
+
+                <section className="account-pro-panel account-pro-order-panel">
+                  <div className="account-pro-card-head">
+                    <div>
+                      <h3>Detalle del pedido</h3>
+                      <small>Productos, importe y valoración</small>
+                    </div>
+                    <strong>{money(trackingOrder.total)}</strong>
+                  </div>
+
+                  <div className="account-pro-items">
+                    {(trackingOrder.items || []).map(item => <div key={item.id} className="account-pro-item-row">
+                      <div>
+                        <b>{item.quantity} × {item.name_snapshot}</b>
+                        {item.options_snapshot && <small>{item.options_snapshot}</small>}
+                      </div>
+                      <span>{money(item.total)}</span>
+                    </div>)}
+                  </div>
+
+                  <div className="account-pro-order-total">
+                    <span>Total del pedido</span>
+                    <b>{money(trackingOrder.total)}</b>
+                  </div>
+
+                  {trackingOrder.status === 'delivered' && <div className="account-pro-review-box">
+                    <div className="account-pro-card-head compact">
+                      <div>
+                        <h3>Valora tu experiencia</h3>
+                        <small>Tu opinión puede mostrarse después de la aprobación del administrador</small>
+                      </div>
+                    </div>
+                    <div className="account-pro-stars">
+                      {[1,2,3,4,5].map(n => <button key={n} className={n <= reviewRating ? 'active' : ''} onClick={() => setReviewRating(n)}>★</button>)}
+                    </div>
+                    <textarea
+                      className="account-pro-textarea"
+                      value={reviewComment}
+                      onChange={e => setReviewComment(e.target.value)}
+                      placeholder="Cuéntanos cómo fue el pedido, la entrega y la calidad de la comida..."
+                    />
+                    <button className="account-pro-primary" disabled={!reviewComment.trim()} onClick={submitReview}>Enviar opinión</button>
+                    {reviewMessage && <small className="account-pro-review-message">{reviewMessage}</small>}
+                  </div>}
+                </section>
+              </div>
+            </>}
+          </>}
+
+          {activeTab === 'history' && <>
+            <div className="account-pro-toolbar history">
+              <div className="account-pro-toolbar-copy">
+                <h2>Historial de pedidos</h2>
+                <p>Accede rápidamente a tus pedidos anteriores, tickets y seguimiento.</p>
+              </div>
+            </div>
+
+            <section className="summary-cards account-pro-summary-cards">
+              <div><b>{customer?.name || 'Cliente'}</b><span>{customer?.phone || phone || 'Sin teléfono'}</span></div>
+              <div><b>{customer?.total_orders || orders.length || 0}</b><span>Pedidos registrados</span></div>
+              <div><b>{money(totalSpent)}</b><span>Importe acumulado</span></div>
+              <div><b>{customer?.default_address || 'Sin dirección'}</b><span>Última dirección</span></div>
+            </section>
+
+            <div className="account-pro-history-grid">
+              {orders.map(order => <article className={`order-card account-pro-history-card status-${order.status}`} key={order.id || order.order_code}>
+                <div className="order-head"><h2>{order.order_code}</h2><strong>{money(order.total)}</strong></div>
+                <div className="account-pro-history-meta">
+                  <p><b>Estado</b><span>{statusLabels[order.status] || order.status}</span></p>
+                  <p><b>Pago</b><span>{order.payment_method} · {order.payment_status}</span></p>
+                  <p><b>Fecha</b><span>{formatDate(order.created_at)}</span></p>
+                </div>
+                <div className="order-items">{(order.items || []).map(item => <div key={item.id}>{item.quantity} × {item.name_snapshot}<span>{money(item.total)}</span></div>)}</div>
+                <div className="account-pro-history-actions">
+                  <button className="account-pro-secondary" onClick={() => openOrder(order)}>Seguir pedido</button>
+                  <button className="account-pro-secondary" onClick={() => window.open(`/receipt/${order.order_code}`, '_blank')}>Ver ticket</button>
+                </div>
+              </article>)}
+              {!orders.length && <div className="account-pro-empty-state slim"><h3>No hay pedidos todavía</h3><p>Cuando el cliente realice un pedido, aparecerá aquí con su resumen y acciones rápidas.</p></div>}
+            </div>
+          </>}
+        </section>
+      </section>
+    </main>
+  </div>;
 }
+
+
 
 function AdminLoginApp() {
   usePageChrome();
