@@ -112,8 +112,8 @@ class CreateOrderSerializer(serializers.Serializer):
     address = serializers.CharField(required=False, allow_blank=True)
     delivery_latitude = serializers.DecimalField(max_digits=10, decimal_places=7, required=False, allow_null=True)
     delivery_longitude = serializers.DecimalField(max_digits=10, decimal_places=7, required=False, allow_null=True)
-    route_distance_km = serializers.DecimalField(max_digits=7, decimal_places=2, required=False, allow_null=True)
-    route_duration_min = serializers.DecimalField(max_digits=7, decimal_places=2, required=False, allow_null=True)
+    route_distance_km = serializers.FloatField(required=False, allow_null=True, min_value=0)
+    route_duration_min = serializers.FloatField(required=False, allow_null=True, min_value=0)
     delivery_fee_override = serializers.DecimalField(max_digits=9, decimal_places=2, required=False, allow_null=True)
     note = serializers.CharField(required=False, allow_blank=True)
     payment_method = serializers.ChoiceField(choices=[Order.PAYMENT_CASH, Order.PAYMENT_CARD_DELIVERY, Order.PAYMENT_ONLINE, Order.PAYMENT_STORE])
@@ -137,6 +137,26 @@ class CreateOrderSerializer(serializers.Serializer):
 
         if not attrs.get('items'):
             raise serializers.ValidationError({'items': 'Order must contain at least one item.'})
+        # route-input-normalization-v2
+        # Browser/OSRM values can contain many decimal places.
+        # Normalize them before saving into DecimalField model columns.
+        distance = attrs.get('route_distance_km')
+        duration = attrs.get('route_duration_min')
+
+        if distance is not None:
+            distance = Decimal(str(distance))
+            attrs['route_distance_km'] = (
+                None if distance > Decimal('100.00')
+                else distance.quantize(Decimal('0.01'))
+            )
+
+        if duration is not None:
+            duration = Decimal(str(duration))
+            attrs['route_duration_min'] = (
+                None if duration > Decimal('600.00')
+                else duration.quantize(Decimal('0.01'))
+            )
+
         return attrs
 
     @transaction.atomic
