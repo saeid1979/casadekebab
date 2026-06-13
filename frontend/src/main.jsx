@@ -1605,14 +1605,17 @@ function TrackingMap({ order, compact = false }) {
   const rider = order?.assigned_rider_data;
 
   function toNumber(value) {
+    // Number(null) and Number('') return 0, which incorrectly places the rider
+    // at latitude 0 / longitude 0 near the Gulf of Guinea.
+    if (value === null || value === undefined || value === '') return null;
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   }
 
   function isValidPoint(lat, lng) {
     return lat !== null && lng !== null &&
-      lat >= -90 && lat <= 90 &&
-      lng >= -180 && lng <= 180;
+      lat >= 40.80 && lat <= 41.12 &&
+      lng >= -5.90 && lng <= -5.35;
   }
 
   function formatKm(value) {
