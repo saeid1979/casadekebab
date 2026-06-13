@@ -48,12 +48,18 @@ def build_order_message(order) -> str:
         lines.append(f'- {item.quantity} x {item.name_snapshot}{options_text} = {item.total} €')
     return '\n'.join(lines)
 
-def queue_sms(phone: str, message: str) -> bool:
+def queue_sms(phone: str, message: str, kind: str = SmsGatewayMessage.KIND_OTP) -> bool:
     phone = str(phone or '').strip()
     message = str(message or '').strip()
     if not phone or not message:
         return False
-    SmsGatewayMessage.objects.create(phone=phone, message=message)
+    SmsGatewayMessage.objects.create(
+        phone=phone,
+        message=message,
+        kind=kind,
+        gateway_phone=str(getattr(settings, 'SMS_GATEWAY_PHONE', '617664661') or '617664661'),
+        status=SmsGatewayMessage.STATUS_PENDING,
+    )
     return True
 
 
@@ -72,4 +78,4 @@ def send_customer_order_sms(order) -> bool:
     if str(getattr(settings, 'SMS_MODE', 'console')).lower() == 'console':
         print(f'[SMS console] {phone}: {message}')
         return True
-    return queue_sms(phone, message)
+    return queue_sms(phone, message, kind=SmsGatewayMessage.KIND_ORDER)

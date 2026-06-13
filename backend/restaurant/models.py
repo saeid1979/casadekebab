@@ -333,6 +333,12 @@ class Payment(models.Model):
 
 
 class SmsGatewayMessage(models.Model):
+    KIND_OTP = 'otp'
+    KIND_ORDER = 'order'
+    KIND_CHOICES = [
+        (KIND_OTP, 'OTP'),
+        (KIND_ORDER, 'Order'),
+    ]
     STATUS_PENDING = 'pending'
     STATUS_PROCESSING = 'processing'
     STATUS_SENT = 'sent'
@@ -346,6 +352,8 @@ class SmsGatewayMessage(models.Model):
 
     phone = models.CharField(max_length=30)
     message = models.TextField()
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default=KIND_OTP)
+    gateway_phone = models.CharField(max_length=30, default='617664661')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     device_id = models.CharField(max_length=160, blank=True, default='')
     error = models.TextField(blank=True, default='')

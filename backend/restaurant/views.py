@@ -152,7 +152,7 @@ def send_phone_code(request):
         print(f'Code: {verification.code}')
         print('======================================')
     else:
-        queue_sms(phone, f'Casa de Kebab Turco: tu código de verificación es {verification.code}. Válido durante 5 minutos.')
+        queue_sms(phone, f'Casa de Kebab Turco: tu código de verificación es {verification.code}. Válido durante 5 minutos.', kind=SmsGatewayMessage.KIND_OTP)
     return Response({'success': True, 'message': 'Verification code sent.', 'mode': sms_mode})
 
 @api_view(['POST'])
