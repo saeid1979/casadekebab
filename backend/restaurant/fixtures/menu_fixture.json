@@ -1,0 +1,1023 @@
+[
+{
+  "model": "restaurant.category",
+  "pk": 1,
+  "fields": {
+    "name_es": "Oferta Familiar",
+    "name_en": "Combo Offers",
+    "slug": "oferta-combo",
+    "sort_order": 6,
+    "is_active": true
+  }
+},
+{
+  "model": "restaurant.category",
+  "pk": 2,
+  "fields": {
+    "name_es": "Menús",
+    "name_en": "Menus",
+    "slug": "menus",
+    "sort_order": 1,
+    "is_active": true
+  }
+},
+{
+  "model": "restaurant.category",
+  "pk": 3,
+  "fields": {
+    "name_es": "Donar Kebab",
+    "name_en": "Doner Kebab",
+    "slug": "doner-kebab",
+    "sort_order": 2,
+    "is_active": true
+  }
+},
+{
+  "model": "restaurant.category",
+  "pk": 4,
+  "fields": {
+    "name_es": "Dürüm",
+    "name_en": "Durum",
+    "slug": "durum",
+    "sort_order": 3,
+    "is_active": true
+  }
+},
+{
+  "model": "restaurant.category",
+  "pk": 5,
+  "fields": {
+    "name_es": "LAHMACUN",
+    "name_en": "Lahmacun",
+    "slug": "lahmacun",
+    "sort_order": 16,
+    "is_active": false
+  }
+},
+{
+  "model": "restaurant.category",
+  "pk": 6,
+  "fields": {
+    "name_es": "Platos Kebab",
+    "name_en": "Kebab Plate",
+    "slug": "plato-kebab",
+    "sort_order": 4,
+    "is_active": true
+  }
+},
+{
+  "model": "restaurant.category",
+  "pk": 7,
+  "fields": {
+    "name_es": "Hamburguesas",
+    "name_en": "Burger",
+    "slug": "hamburguesa",
+    "sort_order": 8,
+    "is_active": true
+  }
+},
+{
+  "model": "restaurant.category",
+  "pk": 8,
+  "fields": {
+    "name_es": "Pollo Broaster",
+    "name_en": "Broaster Chicken",
+    "slug": "pollo-broaster",
+    "sort_order": 7,
+    "is_active": true
+  }
+},
+{
+  "model": "restaurant.category",
+  "pk": 9,
+  "fields": {
+    "name_es": "Raciones",
+    "name_en": "Sides",
+    "slug": "raciones",
+    "sort_order": 5,
+    "is_active": true
+  }
+},
+{
+  "model": "restaurant.category",
+  "pk": 10,
+  "fields": {
+    "name_es": "COMIDA HINDÚ",
+    "name_en": "Indian Food",
+    "slug": "comida-hindu",
+    "sort_order": 15,
+    "is_active": false
+  }
+},
+{
+  "model": "restaurant.category",
+  "pk": 11,
+  "fields": {
+    "name_es": "Bebidas",
+    "name_en": "Drinks",
+    "slug": "bebidas",
+    "sort_order": 9,
+    "is_active": true
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 1,
+  "fields": {
+    "category": 1,
+    "name_es": "Oferta de 3 Durum",
+    "name_en": "Oferta de 3 Durum",
+    "description_es": "3 Durum , 1 Platas , 1.25 litro Cola",
+    "description_en": "3 Durum , 1 Platas , 1.25 litro Cola",
+    "price": "18.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-10T20:28:36.266Z",
+    "updated_at": "2026-06-11T23:24:28.990Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 2,
+  "fields": {
+    "category": 1,
+    "name_es": "Oferta de 3 Kebab",
+    "name_en": "Oferta de 3 Kebab",
+    "description_es": "3 Durum , 1 Platas , 1.25 litro Cola",
+    "description_en": "3 Durum , 1 Platas , 1.25 litro Cola",
+    "price": "15.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:36.295Z",
+    "updated_at": "2026-06-11T23:26:25.846Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 3,
+  "fields": {
+    "category": 1,
+    "name_es": "Combo 3",
+    "name_en": "Combo 3",
+    "description_es": "3 kebabs, 6 alitas o 3 muslos, 2 patatas y bebida 2L.",
+    "description_en": "3 kebabs, 6 alitas o 3 muslos, 2 patatas y bebida 2L.",
+    "price": "16.95",
+    "image": "",
+    "is_active": false,
+    "is_available": false,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:36.324Z",
+    "updated_at": "2026-06-11T23:32:00.693Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 4,
+  "fields": {
+    "category": 1,
+    "name_es": "Combo 4",
+    "name_en": "Combo 4",
+    "description_es": "3 durum, 6 alitas o 3 muslos, 2 patatas y bebida 2L.",
+    "description_en": "3 durum, 6 alitas o 3 muslos, 2 patatas y bebida 2L.",
+    "price": "17.95",
+    "image": "",
+    "is_active": false,
+    "is_available": false,
+    "sort_order": 4,
+    "created_at": "2026-06-10T20:28:36.352Z",
+    "updated_at": "2026-06-11T23:32:00.697Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 5,
+  "fields": {
+    "category": 1,
+    "name_es": "Combo 5",
+    "name_en": "Combo 5",
+    "description_es": "2 kebabs, 2 durum, 6 alitas o 3 muslos, 2 patatas y bebida 2L.",
+    "description_en": "2 kebabs, 2 durum, 6 alitas o 3 muslos, 2 patatas y bebida 2L.",
+    "price": "19.95",
+    "image": "",
+    "is_active": false,
+    "is_available": false,
+    "sort_order": 5,
+    "created_at": "2026-06-10T20:28:36.379Z",
+    "updated_at": "2026-06-11T23:32:00.698Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 6,
+  "fields": {
+    "category": 1,
+    "name_es": "Combo 6",
+    "name_en": "Combo 6",
+    "description_es": "3 kebabs, 3 durum, 6 alitas o 3 muslos, 2 patatas y 2 bebidas 2L.",
+    "description_en": "3 kebabs, 3 durum, 6 alitas o 3 muslos, 2 patatas y 2 bebidas 2L.",
+    "price": "35.95",
+    "image": "",
+    "is_active": false,
+    "is_available": false,
+    "sort_order": 6,
+    "created_at": "2026-06-10T20:28:36.406Z",
+    "updated_at": "2026-06-11T23:32:00.699Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 7,
+  "fields": {
+    "category": 2,
+    "name_es": "Menú Doner Kebab",
+    "name_en": "Menú Doner Kebab",
+    "description_es": "Kebab con patatas y bebida.",
+    "description_en": "Kebab con patatas y bebida.",
+    "price": "7.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-10T20:28:36.433Z",
+    "updated_at": "2026-06-11T23:32:37.824Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 8,
+  "fields": {
+    "category": 2,
+    "name_es": "Menú Durum",
+    "name_en": "Menú Durum",
+    "description_es": "Durum con patatas y bebida.",
+    "description_en": "Durum con patatas y bebida.",
+    "price": "8.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:36.513Z",
+    "updated_at": "2026-06-11T09:28:39.521Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 9,
+  "fields": {
+    "category": 2,
+    "name_es": "Menú Alitas de pollo (6 Uds)",
+    "name_en": "Menú Alitas de pollo (6 Uds)",
+    "description_es": "Alitas de pollo + Refresco + Patatas",
+    "description_en": "Alitas de pollo + Refresco + Patatas",
+    "price": "7.00",
+    "image": "",
+    "is_active": false,
+    "is_available": false,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:36.590Z",
+    "updated_at": "2026-06-11T23:36:14.012Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 10,
+  "fields": {
+    "category": 2,
+    "name_es": "Menú Plato Kebab",
+    "name_en": "Menú Plato Kebab",
+    "description_es": "Plato kebab con patatas y bebida.",
+    "description_en": "Plato kebab con patatas y bebida.",
+    "price": "9.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:36.666Z",
+    "updated_at": "2026-06-12T00:00:15.882Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 11,
+  "fields": {
+    "category": 3,
+    "name_es": "Kebab Ternera",
+    "name_en": "Kebab Ternera",
+    "description_es": "Pan kebab con carne de ternera, ensalada y salsa.",
+    "description_en": "Pan kebab con carne de ternera, ensalada y salsa.",
+    "price": "4.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-10T20:28:36.741Z",
+    "updated_at": "2026-06-11T23:38:30.410Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 12,
+  "fields": {
+    "category": 3,
+    "name_es": "Kebab Pollo",
+    "name_en": "Kebab Pollo",
+    "description_es": "Pan kebab con pollo, ensalada y salsa.",
+    "description_en": "Pan kebab con pollo, ensalada y salsa.",
+    "price": "4.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:36.812Z",
+    "updated_at": "2026-06-11T23:38:55.093Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 13,
+  "fields": {
+    "category": 3,
+    "name_es": "Kebab Mixto",
+    "name_en": "Kebab Mixto",
+    "description_es": "Pan kebab con carne mixta, ensalada y salsa.",
+    "description_en": "Pan kebab con carne mixta, ensalada y salsa.",
+    "price": "5.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:36.916Z",
+    "updated_at": "2026-06-11T23:39:04.889Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 14,
+  "fields": {
+    "category": 3,
+    "name_es": "Kebab Solo Carne",
+    "name_en": "Kebab Solo Carne",
+    "description_es": "Pan kebab con carne y salsa, sin ensalada.",
+    "description_en": "Pan kebab con carne y salsa, sin ensalada.",
+    "price": "5.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 4,
+    "created_at": "2026-06-10T20:28:36.979Z",
+    "updated_at": "2026-06-11T23:38:00.581Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 15,
+  "fields": {
+    "category": 4,
+    "name_es": "Durum Ternera",
+    "name_en": "Durum Ternera",
+    "description_es": "Durum de ternera con ensalada y salsa.",
+    "description_en": "Durum de ternera con ensalada y salsa.",
+    "price": "5.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:37.035Z",
+    "updated_at": "2026-06-12T00:00:15.885Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 16,
+  "fields": {
+    "category": 4,
+    "name_es": "Durum Pollo",
+    "name_en": "Durum Pollo",
+    "description_es": "Durum de pollo con ensalada y salsa.",
+    "description_en": "Durum de pollo con ensalada y salsa.",
+    "price": "5.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:37.091Z",
+    "updated_at": "2026-06-12T00:00:15.886Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 17,
+  "fields": {
+    "category": 4,
+    "name_es": "Durum Mixto",
+    "name_en": "Durum Mixto",
+    "description_es": "Durum mixto con ensalada y salsa.",
+    "description_en": "Durum mixto con ensalada y salsa.",
+    "price": "5.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 4,
+    "created_at": "2026-06-10T20:28:37.169Z",
+    "updated_at": "2026-06-12T00:00:15.887Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 18,
+  "fields": {
+    "category": 4,
+    "name_es": "Durum Solo Carne",
+    "name_en": "Durum Solo Carne",
+    "description_es": "Dürüm, carne de ternera, pollo o mixto y salsa",
+    "description_en": "Dürüm, carne de ternera, pollo o mixto y salsa",
+    "price": "6.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 5,
+    "created_at": "2026-06-10T20:28:37.240Z",
+    "updated_at": "2026-06-12T00:00:15.888Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 19,
+  "fields": {
+    "category": 5,
+    "name_es": "Lahmacun Ternera",
+    "name_en": "Lahmacun Ternera",
+    "description_es": "Pizza turca con ternera, ensalada y salsa.",
+    "description_en": "Pizza turca con ternera, ensalada y salsa.",
+    "price": "6.50",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-10T20:28:37.297Z",
+    "updated_at": "2026-06-11T09:28:40.591Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 20,
+  "fields": {
+    "category": 5,
+    "name_es": "Lahmacun Pollo",
+    "name_en": "Lahmacun Pollo",
+    "description_es": "Pizza turca con pollo, ensalada y salsa.",
+    "description_en": "Pizza turca con pollo, ensalada y salsa.",
+    "price": "6.50",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:37.363Z",
+    "updated_at": "2026-06-11T09:28:40.686Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 21,
+  "fields": {
+    "category": 5,
+    "name_es": "Lahmacun Mixto",
+    "name_en": "Lahmacun Mixto",
+    "description_es": "Pizza turca con carne mixta, ensalada y salsa.",
+    "description_en": "Pizza turca con carne mixta, ensalada y salsa.",
+    "price": "6.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:37.426Z",
+    "updated_at": "2026-06-11T09:28:40.765Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 22,
+  "fields": {
+    "category": 6,
+    "name_es": "Plato Kebab Ternera",
+    "name_en": "Plato Kebab Ternera",
+    "description_es": "Carne de ternera con ensalada, patatas y salsa.",
+    "description_en": "Carne de ternera con ensalada, patatas y salsa.",
+    "price": "8.50",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-10T20:28:37.487Z",
+    "updated_at": "2026-06-11T09:28:40.832Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 23,
+  "fields": {
+    "category": 6,
+    "name_es": "Plato Kebab Pollo",
+    "name_en": "Plato Kebab Pollo",
+    "description_es": "Pollo con ensalada, patatas y salsa.",
+    "description_en": "Pollo con ensalada, patatas y salsa.",
+    "price": "8.50",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:37.548Z",
+    "updated_at": "2026-06-11T09:28:40.899Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 24,
+  "fields": {
+    "category": 6,
+    "name_es": "Plato Kebab Mixto",
+    "name_en": "Plato Kebab Mixto",
+    "description_es": "Carne mixta con ensalada, patatas y salsa.",
+    "description_en": "Carne mixta con ensalada, patatas y salsa.",
+    "price": "8.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:37.605Z",
+    "updated_at": "2026-06-11T09:28:40.969Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 25,
+  "fields": {
+    "category": 6,
+    "name_es": "Plato Falafel",
+    "name_en": "Plato Falafel",
+    "description_es": "Falafel con ensalada, patatas y salsa.",
+    "description_en": "Falafel con ensalada, patatas y salsa.",
+    "price": "7.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 4,
+    "created_at": "2026-06-10T20:28:37.658Z",
+    "updated_at": "2026-06-11T23:45:06.431Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 26,
+  "fields": {
+    "category": 7,
+    "name_es": "Hamburguesa Clásica",
+    "name_en": "Hamburguesa Clásica",
+    "description_es": "Hamburguesa con lechuga, tomate, queso y salsa.",
+    "description_en": "Hamburguesa con lechuga, tomate, queso y salsa.",
+    "price": "5.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-10T20:28:37.713Z",
+    "updated_at": "2026-06-11T23:47:48.138Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 27,
+  "fields": {
+    "category": 7,
+    "name_es": "Hamburguesa de Pollo",
+    "name_en": "Hamburguesa de Pollo",
+    "description_es": "Hamburguesa de pollo con lechuga, tomate, queso y salsa.",
+    "description_en": "Hamburguesa de pollo con lechuga, tomate, queso y salsa.",
+    "price": "5.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:37.720Z",
+    "updated_at": "2026-06-11T23:48:02.635Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 28,
+  "fields": {
+    "category": 7,
+    "name_es": "Menú Hamburguesa",
+    "name_en": "Menú Hamburguesa",
+    "description_es": "Hamburguesa con patatas y bebida.",
+    "description_en": "Hamburguesa con patatas y bebida.",
+    "price": "7.50",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:37.727Z",
+    "updated_at": "2026-06-11T09:28:41.159Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 29,
+  "fields": {
+    "category": 8,
+    "name_es": "4 Alitas",
+    "name_en": "4 Alitas",
+    "description_es": "4 alitas de pollo broaster.",
+    "description_en": "4 alitas de pollo broaster.",
+    "price": "4.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-10T20:28:37.733Z",
+    "updated_at": "2026-06-11T23:58:46.689Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 30,
+  "fields": {
+    "category": 8,
+    "name_es": "6 Alitas",
+    "name_en": "6 Alitas",
+    "description_es": "6 alitas de pollo broaster.",
+    "description_en": "6 alitas de pollo broaster.",
+    "price": "6.95",
+    "image": "",
+    "is_active": false,
+    "is_available": false,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:37.739Z",
+    "updated_at": "2026-06-11T23:59:23.531Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 31,
+  "fields": {
+    "category": 8,
+    "name_es": "9 Alitas",
+    "name_en": "9 Alitas",
+    "description_es": "9 alitas de pollo broaster.",
+    "description_en": "9 alitas de pollo broaster.",
+    "price": "9.95",
+    "image": "",
+    "is_active": false,
+    "is_available": false,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:37.745Z",
+    "updated_at": "2026-06-11T23:59:23.535Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 32,
+  "fields": {
+    "category": 8,
+    "name_es": "2 Muslos",
+    "name_en": "2 Muslos",
+    "description_es": "2 muslos de pollo broaster.",
+    "description_en": "2 muslos de pollo broaster.",
+    "price": "5.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:37.751Z",
+    "updated_at": "2026-06-12T00:00:15.889Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 33,
+  "fields": {
+    "category": 8,
+    "name_es": "4 Muslos",
+    "name_en": "4 Muslos",
+    "description_es": "4 muslos de pollo broaster.",
+    "description_en": "4 muslos de pollo broaster.",
+    "price": "9.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:37.757Z",
+    "updated_at": "2026-06-12T00:00:15.890Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 34,
+  "fields": {
+    "category": 9,
+    "name_es": "Patatas Fritas",
+    "name_en": "Patatas Fritas",
+    "description_es": "Ración de patatas fritas.",
+    "description_en": "Ración de patatas fritas.",
+    "price": "2.50",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-10T20:28:37.764Z",
+    "updated_at": "2026-06-11T09:28:41.203Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 35,
+  "fields": {
+    "category": 9,
+    "name_es": "Patatas Bravas",
+    "name_en": "Patatas Bravas",
+    "description_es": "Patatas con salsa brava.",
+    "description_en": "Patatas con salsa brava.",
+    "price": "3.50",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:37.770Z",
+    "updated_at": "2026-06-11T09:28:41.209Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 36,
+  "fields": {
+    "category": 9,
+    "name_es": "Nuggets de pollo (6 Uds)",
+    "name_en": "Nuggets de pollo (6 Uds)",
+    "description_es": "Seis nuggets de pollo empanados con salsa de mostaza y miel",
+    "description_en": "Seis nuggets de pollo empanados con salsa de mostaza y miel",
+    "price": "4.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:37.776Z",
+    "updated_at": "2026-06-11T23:46:14.128Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 37,
+  "fields": {
+    "category": 9,
+    "name_es": "Falafel",
+    "name_en": "Falafel",
+    "description_es": "Ración de falafel.",
+    "description_en": "Ración de falafel.",
+    "price": "4.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 4,
+    "created_at": "2026-06-10T20:28:37.782Z",
+    "updated_at": "2026-06-11T23:45:22.989Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 38,
+  "fields": {
+    "category": 9,
+    "name_es": "Aros de Cebolla",
+    "name_en": "Aros de Cebolla",
+    "description_es": "Ración de aros de cebolla.",
+    "description_en": "Ración de aros de cebolla.",
+    "price": "3.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 5,
+    "created_at": "2026-06-10T20:28:37.788Z",
+    "updated_at": "2026-06-11T09:28:41.251Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 39,
+  "fields": {
+    "category": 10,
+    "name_es": "Pollo Tikka Masala",
+    "name_en": "Pollo Tikka Masala",
+    "description_es": "Pollo troceado cocinado con nata, almendras y yogur, ligeramente picante.",
+    "description_en": "Pollo troceado cocinado con nata, almendras y yogur, ligeramente picante.",
+    "price": "9.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-10T20:28:37.795Z",
+    "updated_at": "2026-06-11T09:28:41.257Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 40,
+  "fields": {
+    "category": 10,
+    "name_es": "Pollo al Curry",
+    "name_en": "Pollo al Curry",
+    "description_es": "Pollo cocinado en salsa curry suave.",
+    "description_en": "Pollo cocinado en salsa curry suave.",
+    "price": "9.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:37.818Z",
+    "updated_at": "2026-06-11T09:28:41.289Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 41,
+  "fields": {
+    "category": 10,
+    "name_es": "Pollo Korma",
+    "name_en": "Pollo Korma",
+    "description_es": "Pollo troceado y cocinado en nata y anacardos con coco muy suave.",
+    "description_en": "Pollo troceado y cocinado en nata y anacardos con coco muy suave.",
+    "price": "9.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:37.841Z",
+    "updated_at": "2026-06-11T09:28:41.317Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 42,
+  "fields": {
+    "category": 10,
+    "name_es": "Butter Chicken",
+    "name_en": "Butter Chicken",
+    "description_es": "Pollo cocinado en horno de arcilla con mantequilla, almendras y nata.",
+    "description_en": "Pollo cocinado en horno de arcilla con mantequilla, almendras y nata.",
+    "price": "9.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 4,
+    "created_at": "2026-06-10T20:28:37.864Z",
+    "updated_at": "2026-06-11T09:28:41.344Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 43,
+  "fields": {
+    "category": 10,
+    "name_es": "Pollo Tikka",
+    "name_en": "Pollo Tikka",
+    "description_es": "Pollo marinado con especias y cocinado al horno.",
+    "description_en": "Pollo marinado con especias y cocinado al horno.",
+    "price": "9.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 5,
+    "created_at": "2026-06-10T20:28:37.886Z",
+    "updated_at": "2026-06-11T09:28:41.372Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 44,
+  "fields": {
+    "category": 10,
+    "name_es": "Pollo Bhuna",
+    "name_en": "Pollo Bhuna",
+    "description_es": "Pollo cocinado con cebolla, tomate y especias suaves.",
+    "description_en": "Pollo cocinado con cebolla, tomate y especias suaves.",
+    "price": "9.95",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 6,
+    "created_at": "2026-06-10T20:28:37.909Z",
+    "updated_at": "2026-06-11T09:28:41.400Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 45,
+  "fields": {
+    "category": 11,
+    "name_es": "Coca-Cola 1.25L",
+    "name_en": "Coca-Cola 1.25L",
+    "description_es": "Lata 330ml.",
+    "description_en": "Lata 330ml.",
+    "price": "2.50",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-10T20:28:37.932Z",
+    "updated_at": "2026-06-11T23:58:29.254Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 46,
+  "fields": {
+    "category": 11,
+    "name_es": "Fanta Naranja",
+    "name_en": "Fanta Naranja",
+    "description_es": "Lata 330ml.",
+    "description_en": "Lata 330ml.",
+    "price": "1.80",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 2,
+    "created_at": "2026-06-10T20:28:37.939Z",
+    "updated_at": "2026-06-11T09:28:41.434Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 47,
+  "fields": {
+    "category": 11,
+    "name_es": "Fanta Limón",
+    "name_en": "Fanta Limón",
+    "description_es": "Lata 330ml.",
+    "description_en": "Lata 330ml.",
+    "price": "1.80",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 3,
+    "created_at": "2026-06-10T20:28:37.945Z",
+    "updated_at": "2026-06-11T09:28:41.441Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 48,
+  "fields": {
+    "category": 11,
+    "name_es": "Agua 0.5L",
+    "name_en": "Agua 0.5L",
+    "description_es": "Botella de agua. 0.5L",
+    "description_en": "Botella de agua. 0.5 L",
+    "price": "1.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 4,
+    "created_at": "2026-06-10T20:28:37.952Z",
+    "updated_at": "2026-06-11T23:56:23.684Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 49,
+  "fields": {
+    "category": 11,
+    "name_es": "Coca-Cola 2L",
+    "name_en": "Coca-Cola 2L",
+    "description_es": "Botella 2 litros.",
+    "description_en": "Botella 2 litros.",
+    "price": "3.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 5,
+    "created_at": "2026-06-10T20:28:37.959Z",
+    "updated_at": "2026-06-11T23:57:36.296Z"
+  }
+},
+{
+  "model": "restaurant.menuitem",
+  "pk": 50,
+  "fields": {
+    "category": 4,
+    "name_es": "Dürüm Vegetal",
+    "name_en": "Dürüm Vegetal",
+    "description_es": "Dürüm, lechuga, tomate, cebolla, queso y salsa",
+    "description_en": "Dürüm, lechuga, tomate, cebolla, queso y salsa",
+    "price": "4.00",
+    "image": "",
+    "is_active": true,
+    "is_available": true,
+    "sort_order": 1,
+    "created_at": "2026-06-11T23:42:48.818Z",
+    "updated_at": "2026-06-12T00:00:15.884Z"
+  }
+}
+]
