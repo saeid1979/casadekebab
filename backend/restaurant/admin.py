@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon
+from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage
 
 class MenuOptionInline(admin.TabularInline):
     model = MenuOption
@@ -93,3 +93,11 @@ class CouponAdmin(admin.ModelAdmin):
     list_display = ('code', 'discount_type', 'value', 'minimum_order', 'first_order_only', 'is_active', 'used_count', 'max_uses')
     list_filter = ('is_active', 'discount_type', 'first_order_only')
     search_fields = ('code', 'description')
+
+
+@admin.register(SmsGatewayMessage)
+class SmsGatewayMessageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'phone', 'status', 'device_id', 'attempts', 'created_at', 'sent_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('phone', 'message', 'device_id', 'error')
+    readonly_fields = ('created_at', 'updated_at', 'sent_at')

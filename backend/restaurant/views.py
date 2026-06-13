@@ -6,13 +6,14 @@ from django.contrib.auth import authenticate, get_user_model
 from django.core import signing
 from functools import wraps
 from django.utils import timezone
-from django.db.models import Sum, Count
+from django.db.models import Sum, Count, F
+from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment
+from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage
 from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer
-from .notifications import send_telegram_message, build_order_message, send_customer_order_sms
+from .notifications import send_telegram_message, build_order_message, send_customer_order_sms, queue_sms
 
 
 ADMIN_TOKEN_SALT = 'casa-de-kebab-admin-v1'
@@ -150,6 +151,8 @@ def send_phone_code(request):
         print(f'Phone: {phone}')
         print(f'Code: {verification.code}')
         print('======================================')
+    else:
+        queue_sms(phone, f'Casa de Kebab Turco: tu código de verificación es {verification.code}. Válido durante 5 minutos.')
     return Response({'success': True, 'message': 'Verification code sent.', 'mode': sms_mode})
 
 @api_view(['POST'])
@@ -875,3 +878,56 @@ def online_payment_status(request, order_code):
     except Order.DoesNotExist:
         return Response({'detail': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
     return Response(OrderSerializer(order).data)
+
+
+def _gateway_authorized(request):
+    expected = str(getattr(settings, 'SMS_GATEWAY_TOKEN', '') or '').strip()
+    auth = str(request.META.get('HTTP_AUTHORIZATION', '') or '')
+    provided = auth.split(' ', 1)[1].strip() if auth.lower().startswith('bearer ') else ''
+    return bool(expected and provided and provided == expected)
+
+
+@api_view(['GET'])
+def sms_gateway_pending(request):
+    if not _gateway_authorized(request):
+        return Response({'detail': 'Invalid gateway token.'}, status=status.HTTP_401_UNAUTHORIZED)
+    device_id = str(request.query_params.get('device_id', '') or '').strip()
+    limit = min(max(int(request.query_params.get('limit', 20)), 1), 50)
+    with transaction.atomic():
+        rows = list(
+            SmsGatewayMessage.objects.select_for_update(skip_locked=True)
+            .filter(status=SmsGatewayMessage.STATUS_PENDING)
+            .order_by('created_at')[:limit]
+        )
+        ids = [row.id for row in rows]
+        if ids:
+            SmsGatewayMessage.objects.filter(id__in=ids).update(
+                status=SmsGatewayMessage.STATUS_PROCESSING,
+                device_id=device_id,
+                attempts=F('attempts') + 1,
+            )
+    return Response({'messages': [
+        {'id': row.id, 'phone': row.phone, 'message': row.message}
+        for row in rows
+    ]})
+
+
+@api_view(['POST'])
+def sms_gateway_mark(request):
+    if not _gateway_authorized(request):
+        return Response({'detail': 'Invalid gateway token.'}, status=status.HTTP_401_UNAUTHORIZED)
+    message_id = request.data.get('id')
+    new_status = str(request.data.get('status', '') or '').strip().lower()
+    if new_status not in [SmsGatewayMessage.STATUS_SENT, SmsGatewayMessage.STATUS_FAILED]:
+        return Response({'detail': 'Invalid status.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        row = SmsGatewayMessage.objects.get(id=message_id)
+    except SmsGatewayMessage.DoesNotExist:
+        return Response({'detail': 'Message not found.'}, status=status.HTTP_404_NOT_FOUND)
+    row.status = new_status
+    row.error = str(request.data.get('error', '') or '')
+    row.device_id = str(request.data.get('device_id', '') or row.device_id)
+    if new_status == SmsGatewayMessage.STATUS_SENT:
+        row.sent_at = timezone.now()
+    row.save(update_fields=['status', 'error', 'device_id', 'sent_at', 'updated_at'])
+    return Response({'success': True, 'id': row.id, 'status': row.status})

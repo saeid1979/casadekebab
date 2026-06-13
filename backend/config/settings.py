@@ -99,11 +99,9 @@ CSRF_TRUSTED_ORIGINS = [
 
 SMS_MODE = os.getenv('SMS_MODE', 'console')
 
-# SMS gateway used to send the generated order code after delivery checkout.
-# SMS_MODE=console prints the message in logs.
-# SMS_MODE=gateway sends a POST request to SMS_GATEWAY_URL.
-SMS_GATEWAY_URL = os.getenv('SMS_GATEWAY_URL', '')
+# Android polling SMS gateway
 SMS_GATEWAY_TOKEN = os.getenv('SMS_GATEWAY_TOKEN', '')
+SMS_GATEWAY_PHONE = os.getenv('SMS_GATEWAY_PHONE', '617664661')
 
 TELEGRAM_ENABLED = os.getenv('TELEGRAM_ENABLED', 'False').lower() == 'true'
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
