@@ -38,6 +38,10 @@ function getCustomer(){ try { return JSON.parse(localStorage.getItem(CUSTOMER_KE
 function saveCustomer(v){ localStorage.setItem(CUSTOMER_KEY, JSON.stringify(v)); }
 function clearCustomer(){ localStorage.removeItem(CUSTOMER_KEY); localStorage.removeItem(LAST_ORDER_KEY); }
 function safeNum(v){ if(v === null || v === undefined || v === '') return null; const n=Number(v); return Number.isFinite(n)?n:null; }
+function coordinate7(v){
+  const n=safeNum(v);
+  return n===null?null:Number(n.toFixed(7));
+}
 function isSalamanca(lat,lng){ return lat!==null&&lng!==null&&lat>=40.80&&lat<=41.12&&lng>=-5.90&&lng<=-5.35; }
 
 
@@ -261,7 +265,7 @@ function CheckoutPage({cart,customer,onSuccess,setToast,onBack}){
       }
 
       setForm(current=>({...current,address:label}));
-      setSelectedPoint({lat,lng});
+      setSelectedPoint({lat:coordinate7(lat),lng:coordinate7(lng)});
       setAddressResults([]);
       setAddressTouched(false);
       setToast('');
@@ -326,8 +330,8 @@ function CheckoutPage({cart,customer,onSuccess,setToast,onBack}){
         customer_email:customer.email||'',
         delivery_type:form.delivery_type,
         address:form.delivery_type==='delivery'?form.address:'',
-        delivery_latitude:point?.lat??null,
-        delivery_longitude:point?.lng??null,
+        delivery_latitude:coordinate7(point?.lat),
+        delivery_longitude:coordinate7(point?.lng),
         route_distance_km:null,
         route_duration_min:null,
         delivery_fee_override:deliveryFee,
