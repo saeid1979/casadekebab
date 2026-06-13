@@ -152,6 +152,10 @@ function money(value) {
   return `${Number(value || 0).toFixed(2).replace('.', ',')} €`;
 }
 
+function normalizePhoneDigits(value) {
+  return String(value || '').replace(/\D/g, '').slice(-9);
+}
+
 function optionExtraSum(options) {
   return (options || []).reduce((sum, opt) => sum + Number(opt.extra_price || 0), 0);
 }
@@ -479,7 +483,6 @@ function App() {
   const initialCategoryOpenedRef = useRef(false);
   const [menuSearchOpen, setMenuSearchOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
-  const [orderSuccess, setOrderSuccess] = useState(null);
 
   useEffect(() => {
     axios.get(`${API_BASE}/menu/`).then(res => {
@@ -618,14 +621,19 @@ function App() {
   }
 
   async function sendCode() {
+    const cleanPhone = normalizePhoneDigits(phone);
+    if (cleanPhone.length !== 9) {
+      setMessage('Escribe un número de teléfono válido.');
+      return;
+    }
     try {
       setLoading(true);
       setMessage('');
       await axios.post(`${API_BASE}/auth/send-code/`, { phone });
       setCodeSent(true);
-      setMessage('Código enviado. En modo prueba mira la terminal de Django.');
+      setMessage(`Código enviado por SMS al teléfono ${phone}.`);
     } catch (err) {
-      setMessage('No se pudo enviar el código. Revisa el backend.');
+      setMessage(err.response?.data?.detail || 'No se pudo enviar el código por SMS.');
     } finally {
       setLoading(false);
     }
@@ -638,6 +646,7 @@ function App() {
       setCustomer(res.data.customer);
       setSessionCustomer(res.data.customer);
       setCurrentRole('customer');
+      setPhone(res.data.customer?.phone || phone);
       setForm(f => ({ ...f, name: res.data.customer?.name || '', address: res.data.customer?.default_address || '' }));
       setLoginOpen(false);
       setMessage('Sesión iniciada correctamente.');
@@ -751,21 +760,34 @@ function App() {
   }
 
   async function requestCheckoutOtp() {
+    const sessionCustomer = customer || getSessionCustomer();
+    const orderPhone = sessionCustomer?.phone || phone;
+
     if (!cart.length) return setMessage('La cesta está vacía.');
     if (!form.name.trim()) return setMessage('Escribe el nombre del cliente.');
-    if (!phone || phone.replace(/\D/g, '').length < 9) return setMessage('Escribe un número de teléfono válido.');
+    if (normalizePhoneDigits(orderPhone).length !== 9) return setMessage('Escribe un número de teléfono válido.');
     if (form.delivery_type === 'delivery' && !form.address.trim()) return setMessage('La dirección es obligatoria para entrega a domicilio.');
     if (form.delivery_type === 'delivery' && !deliveryAllowed) return setMessage(`Esta dirección está fuera de la zona de reparto (${DEFAULT_DELIVERY_RADIUS_KM} km).`);
 
+    // El cliente que ya inició sesión ya verificó su teléfono.
+    // Para él no se vuelve a enviar OTP al confirmar cada pedido.
+    if (sessionCustomer?.phone) {
+      if (phone !== sessionCustomer.phone) setPhone(sessionCustomer.phone);
+      setMessage('Cuenta verificada. Registrando el pedido sin solicitar otro código SMS...');
+      await finalizeOrderAfterOtp(sessionCustomer.phone);
+      return;
+    }
+
+    // Invitados: se exige un código SMS antes de registrar el pedido.
     try {
       setCheckoutOtpSending(true);
       setCheckoutOtpMessage('');
       setCheckoutOtpCode('');
-      await axios.post(`${API_BASE}/auth/send-code/`, { phone });
+      await axios.post(`${API_BASE}/auth/send-code/`, { phone: orderPhone });
       setCheckoutOtpOpen(true);
-      setCheckoutOtpMessage(`Hemos enviado un código de verificación al teléfono ${phone}.`);
+      setCheckoutOtpMessage(`Hemos enviado un código de verificación por SMS al teléfono ${orderPhone}.`);
     } catch (err) {
-      setMessage(err.response?.data?.detail || 'No se pudo enviar el código de verificación.');
+      setMessage(err.response?.data?.detail || 'No se pudo enviar el código de verificación por SMS.');
     } finally {
       setCheckoutOtpSending(false);
     }
@@ -786,14 +808,12 @@ function App() {
         code: codeValue,
       });
 
-      if (res.data?.customer) {
-        setCustomer(res.data.customer);
-        setSessionCustomer(res.data.customer);
-      }
-
+      // Verificar un pedido como invitado no inicia sesión automáticamente.
+      // La sesión de cliente sólo se crea desde el formulario «Iniciar Sesión».
+      const verifiedPhone = res.data?.customer?.phone || phone;
       setCheckoutOtpOpen(false);
       setCheckoutOtpCode('');
-      await finalizeOrderAfterOtp();
+      await finalizeOrderAfterOtp(verifiedPhone);
     } catch (err) {
       setCheckoutOtpMessage(
         err.response?.data?.detail ||
@@ -817,9 +837,10 @@ function App() {
     }
   }
 
-  async function finalizeOrderAfterOtp() {
+  async function finalizeOrderAfterOtp(verifiedPhone = '') {
     try {
-      if (!phone || phone.replace(/\D/g, '').length < 9) return setMessage('Escribe un número de teléfono válido.');
+      const orderPhone = verifiedPhone || customer?.phone || getSessionCustomer()?.phone || phone;
+      if (normalizePhoneDigits(orderPhone).length !== 9) return setMessage('Escribe un número de teléfono válido.');
       if (!cart.length) return setMessage('La cesta está vacía.');
       if (form.delivery_type === 'delivery' && !form.address.trim()) return setMessage('La dirección es obligatoria para entrega a domicilio.');
       if (form.delivery_type === 'delivery' && !deliveryAllowed) return setMessage(`Esta dirección está fuera de la zona de reparto (${DEFAULT_DELIVERY_RADIUS_KM} km).`);
@@ -827,7 +848,7 @@ function App() {
       setLoading(true);
       const payload = {
         customer_name: form.name,
-        customer_phone: phone,
+        customer_phone: orderPhone,
         delivery_type: form.delivery_type,
         address: form.address,
         delivery_latitude: deliveryPoint?.lat || null,
@@ -845,32 +866,7 @@ function App() {
         })),
       };
       const res = await axios.post(`${API_BASE}/orders/`, payload);
-      const apiOrder = res.data?.order || {};
-      const orderCode = apiOrder.order_code;
-      const successOrder = {
-        ...apiOrder,
-        order_code: orderCode,
-        created_at: apiOrder.created_at || new Date().toISOString(),
-        customer_name: apiOrder.customer_name || form.name,
-        customer_phone: apiOrder.customer_phone || phone,
-        delivery_type: apiOrder.delivery_type || form.delivery_type,
-        address: apiOrder.address || form.address,
-        payment_method: apiOrder.payment_method || form.payment_method,
-        payment_status: apiOrder.payment_status || 'pending',
-        subtotal: apiOrder.subtotal ?? subtotal,
-        delivery_fee: apiOrder.delivery_fee ?? deliveryFee,
-        discount: apiOrder.discount ?? couponDiscount,
-        total: apiOrder.total ?? total,
-        note: apiOrder.note || payload.note,
-        items: Array.isArray(apiOrder.items) && apiOrder.items.length
-          ? apiOrder.items
-          : cart.map(item => ({
-              id: item.cart_key,
-              quantity: item.quantity,
-              name_snapshot: item.name_es,
-              total: Number(item.final_price) * item.quantity,
-            })),
-      };
+      const orderCode = res.data.order.order_code;
       setCart([]);
       setCheckoutOpen(false);
       if (form.payment_method === 'online') {
@@ -878,7 +874,7 @@ function App() {
         window.location.href = `/payment-demo/${orderCode}`;
         return;
       }
-      setOrderSuccess(successOrder);
+      window.location.href = `/receipt/${orderCode}`;
     } catch (err) {
       setMessage('No se pudo registrar el pedido. Revisa que el menú esté cargado en la base de datos.');
     } finally {
@@ -989,6 +985,7 @@ function App() {
     </main>
 
     <LocationSection />
+    <PublicReviewsSection />
 
     {activeItem && <ProductModal item={activeItem} onClose={() => setActiveItem(null)} onAdd={(item, options) => { addItem(item, options); setActiveItem(null); }} />}
 
@@ -1014,7 +1011,13 @@ function App() {
       </div>
 
       <input placeholder="Nombre" value={form.name} onChange={e => setForm({...form, name:e.target.value})}/>
-      <input placeholder="Teléfono" value={phone} onChange={e => setPhone(e.target.value)}/>
+      <input
+        placeholder="Teléfono"
+        value={customer?.phone || phone}
+        readOnly={Boolean(customer?.phone)}
+        onChange={e => setPhone(e.target.value)}
+      />
+      {customer?.phone && <p className="muted">Teléfono verificado en tu cuenta. No se solicitará otro código SMS para este pedido.</p>}
 
       {form.delivery_type === 'delivery' ? <div className="direct-address-section">
         <GooglePlacesDeliveryAddress
@@ -1055,52 +1058,6 @@ function App() {
         <option value="online">Pago online</option>
       </select>
       <button className="pay" disabled={loading || settings?.is_open === false || (form.delivery_type === 'delivery' && !form.address.trim()) || !deliveryAllowed} onClick={requestCheckoutOtp}>Confirmar pedido <b>{money(total)}</b></button>
-    </Modal>}
-
-    {orderSuccess && <Modal onClose={() => setOrderSuccess(null)} className="order-success-modal">
-      <section className="order-success-sheet">
-        <div className="order-success-icon">✓</div>
-        <h2>Pedido registrado correctamente</h2>
-        <p className="order-success-lead">Gracias por tu pedido en Casa de Kebab Turco.</p>
-
-        <div className="order-success-code">
-          <span>Código de seguimiento</span>
-          <strong>{orderSuccess.order_code}</strong>
-        </div>
-
-        <div className="order-success-meta">
-          <p><span>Fecha y hora</span><b>{new Date(orderSuccess.created_at).toLocaleString('es-ES')}</b></p>
-          <p><span>Cliente</span><b>{orderSuccess.customer_name || 'Sin nombre'}</b></p>
-          <p><span>Teléfono</span><b>{orderSuccess.customer_phone}</b></p>
-          <p><span>Tipo</span><b>{orderSuccess.delivery_type === 'delivery' ? 'Entrega a domicilio' : 'Recoger en tienda'}</b></p>
-          {orderSuccess.address && <p><span>Dirección</span><b>{orderSuccess.address}</b></p>}
-          <p><span>Pago</span><b>{orderSuccess.payment_method} · {orderSuccess.payment_status}</b></p>
-        </div>
-
-        <div className="order-success-items">
-          <h3>Detalle del pedido</h3>
-          {(orderSuccess.items || []).map((item, index) => <div className="order-success-line" key={item.id || index}>
-            <span>{item.quantity} × {item.name_snapshot || item.name_es || item.name || 'Producto'}</span>
-            <b>{money(item.total ?? (Number(item.unit_price || item.price || 0) * Number(item.quantity || 1)))}</b>
-          </div>)}
-        </div>
-
-        <div className="order-success-totals">
-          <p><span>Subtotal</span><b>{money(orderSuccess.subtotal)}</b></p>
-          <p><span>Envío</span><b>{money(orderSuccess.delivery_fee)}</b></p>
-          {Number(orderSuccess.discount || 0) > 0 && <p><span>Descuento</span><b>-{money(orderSuccess.discount)}</b></p>}
-          <p className="order-success-grand"><span>Total</span><b>{money(orderSuccess.total)}</b></p>
-        </div>
-
-        {orderSuccess.note && <p className="order-success-note"><b>Nota:</b> {orderSuccess.note}</p>}
-        <p className="order-success-time">Tu pedido llegará o estará listo en aproximadamente 20 minutos.</p>
-
-        <div className="order-success-actions">
-          <button type="button" className="print-button" onClick={() => window.print()}>Imprimir factura</button>
-          <button type="button" className="mini-action" onClick={() => window.location.href = `/track/${orderSuccess.order_code}`}>Seguir pedido</button>
-          <button type="button" className="mini-action" onClick={() => setOrderSuccess(null)}>Cerrar</button>
-        </div>
-      </section>
     </Modal>}
 
     {checkoutOtpOpen && <Modal onClose={() => {
@@ -1796,6 +1753,7 @@ function RiderApp() {
           {order.address && <p><b>Dirección:</b> {order.address}</p>}
           {order.address && <a className="map-button" href={getMapsUrl(order.address)} target="_blank" rel="noreferrer">Abrir Google Maps</a>}
           <div className="order-items">{(order.items || []).map(item => <div key={item.id}>{item.quantity} x {item.name_snapshot} <span>{money(item.total)}</span></div>)}</div>
+          <OrderChatPanel orderCode={order.order_code} phone={phone} senderType="rider" closed={order.status === 'delivered'} />
           <div className="status-buttons">
             <button onClick={() => updateStatus(order.order_code, 'out_for_delivery')}>En reparto</button>
             <button onClick={() => updateStatus(order.order_code, 'delivered')}>Entregado</button>
@@ -1808,69 +1766,182 @@ function RiderApp() {
 }
 
 
+
+const ORDER_STATUS_LABELS = {
+  pending: 'Pedido recibido', accepted: 'Aceptado', preparing: 'Preparando',
+  ready: 'Listo', out_for_delivery: 'En camino', delivered: 'Entregado', cancelled: 'Cancelado'
+};
+
+function PublicReviewsSection() {
+  const [reviews, setReviews] = useState([]);
+  useEffect(() => {
+    axios.get(`${API_BASE}/reviews/public/`).then(res => setReviews(Array.isArray(res.data) ? res.data : [])).catch(() => setReviews([]));
+  }, []);
+  if (!reviews.length) return null;
+  return <section className="public-reviews-section">
+    <div className="reviews-heading"><span>Opiniones verificadas</span><h2>Lo que dicen nuestros clientes</h2></div>
+    <div className="reviews-horizontal" role="region" aria-label="Opiniones de clientes">
+      {reviews.map(r => <article className="review-card" key={r.id}>
+        <div className="review-stars">{'★'.repeat(r.rating)}{'☆'.repeat(5-r.rating)}</div>
+        <p>“{r.comment}”</p>
+        <footer><b>{r.customer_name || 'Cliente'}</b><small>{new Date(r.approved_at || r.created_at).toLocaleDateString('es-ES')}</small></footer>
+      </article>)}
+    </div>
+  </section>;
+}
+
+function SmoothRiderMap({ orderCode, phone, active }) {
+  const mapBoxRef = useRef(null);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+  const positionRef = useRef(null);
+  const [lastUpdate, setLastUpdate] = useState('');
+  const [notice, setNotice] = useState('Esperando la ubicación del repartidor...');
+
+  useEffect(() => {
+    if (!active || !mapBoxRef.current || mapRef.current) return;
+    const map = L.map(mapBoxRef.current, { zoomControl: true, scrollWheelZoom: true }).setView([RESTAURANT_COORD.lat, RESTAURANT_COORD.lng], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+    mapRef.current = map;
+    setTimeout(() => map.invalidateSize(), 100);
+    return () => { map.remove(); mapRef.current = null; markerRef.current = null; positionRef.current = null; };
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    async function refreshLocation() {
+      try {
+        const res = await axios.get(`${API_BASE}/orders/${encodeURIComponent(orderCode)}/location/`, { params: { phone } });
+        if (cancelled) return;
+        const loc = res.data?.location;
+        if (!loc) { setNotice(res.data?.delivered ? 'Pedido entregado.' : 'El repartidor todavía no comparte ubicación.'); return; }
+        const next = { lat: Number(loc.latitude), lng: Number(loc.longitude) };
+        setNotice(`Repartidor: ${loc.rider_name || 'En camino'}`);
+        setLastUpdate(loc.updated_at ? new Date(loc.updated_at).toLocaleTimeString('es-ES') : new Date().toLocaleTimeString('es-ES'));
+        if (!mapRef.current) return;
+        if (!markerRef.current) {
+          markerRef.current = L.marker([next.lat, next.lng], { title: 'Repartidor' }).addTo(mapRef.current).bindPopup('Repartidor en camino');
+          positionRef.current = next;
+          mapRef.current.setView([next.lat, next.lng], 16, { animate: true });
+          return;
+        }
+        const start = positionRef.current || next;
+        const started = performance.now();
+        const duration = 900;
+        function frame(now) {
+          const t = Math.min(1, (now - started) / duration);
+          const eased = 1 - Math.pow(1 - t, 3);
+          const lat = start.lat + (next.lat - start.lat) * eased;
+          const lng = start.lng + (next.lng - start.lng) * eased;
+          markerRef.current?.setLatLng([lat, lng]);
+          if (t < 1) requestAnimationFrame(frame); else positionRef.current = next;
+        }
+        requestAnimationFrame(frame);
+      } catch (err) { if (!cancelled) setNotice('No se pudo actualizar la ubicación.'); }
+    }
+    refreshLocation();
+    const timer = setInterval(refreshLocation, 5000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [active, orderCode, phone]);
+
+  if (!active) return null;
+  return <section className="live-rider-map-card">
+    <div className="live-map-head"><b>Ubicación en vivo</b><span>{notice}</span>{lastUpdate && <small>Actualizado: {lastUpdate}</small>}</div>
+    <div className="customer-live-map" ref={mapBoxRef}></div>
+  </section>;
+}
+
+function OrderChatPanel({ orderCode, phone, senderType='customer', closed=false }) {
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState('');
+  const [chatClosed, setChatClosed] = useState(closed);
+  const [error, setError] = useState('');
+  const endRef = useRef(null);
+
+  async function loadChat() {
+    try {
+      const res = await axios.get(`${API_BASE}/orders/${encodeURIComponent(orderCode)}/chat/`, { params: { phone, sender_type: senderType } });
+      setMessages(res.data?.messages || []); setChatClosed(Boolean(res.data?.chat_closed)); setError('');
+    } catch (err) { setError(err.response?.data?.detail || 'No se pudo cargar el chat.'); }
+  }
+  useEffect(() => {
+    loadChat();
+    const timer = setInterval(loadChat, 4000);
+    return () => clearInterval(timer);
+  }, [orderCode, phone, senderType]);
+  useEffect(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages.length]);
+
+  async function sendMessage() {
+    const value = draft.trim(); if (!value || chatClosed) return;
+    try {
+      await axios.post(`${API_BASE}/orders/${encodeURIComponent(orderCode)}/chat/`, { phone, sender_type: senderType, message: value });
+      setDraft(''); await loadChat();
+    } catch (err) { setError(err.response?.data?.detail || 'No se pudo enviar el mensaje.'); }
+  }
+
+  return <section className="order-chat-panel">
+    <div className="chat-title"><b>Chat del pedido</b><span>{chatClosed ? 'Cerrado después de la entrega' : 'Cliente · Repartidor · Restaurante'}</span></div>
+    {chatClosed ? <div className="chat-hidden-note">La conversación queda oculta para cliente y repartidor después de la entrega.</div> : <>
+      <div className="chat-messages">{messages.map(m => <div key={m.id} className={`chat-bubble ${m.sender_type === senderType ? 'mine' : ''}`}><b>{m.sender_name || m.sender_type}</b><p>{m.message}</p><small>{new Date(m.created_at).toLocaleTimeString('es-ES')}</small></div>)}<div ref={endRef}/></div>
+      <div className="chat-compose"><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }} placeholder="Escribe un mensaje..."/><button onClick={sendMessage}>Enviar</button></div>
+    </>}
+    {error && <small className="chat-error">{error}</small>}
+  </section>;
+}
+
+function OrderReviewForm({ orderCode, phone }) {
+  const [rating, setRating] = useState(5); const [comment, setComment] = useState(''); const [message, setMessage] = useState('');
+  async function submit() {
+    try {
+      const res = await axios.post(`${API_BASE}/reviews/`, { order_code: orderCode, phone, rating, comment });
+      setMessage(res.data?.message || 'Opinión enviada.'); setComment('');
+    } catch (err) { setMessage(err.response?.data?.detail || 'No se pudo enviar la opinión.'); }
+  }
+  return <section className="order-review-form"><h3>Valora tu pedido</h3><div className="review-picker">{[1,2,3,4,5].map(n => <button key={n} onClick={() => setRating(n)} className={n <= rating ? 'active' : ''}>★</button>)}</div><textarea value={comment} onChange={e => setComment(e.target.value)} placeholder="Cuéntanos tu experiencia..."/><button className="mini-action" disabled={!comment.trim()} onClick={submit}>Enviar opinión</button>{message && <p>{message}</p>}</section>;
+}
+
+function CustomerTrackingPanel({ defaultPhone='' }) {
+  const [phone, setPhone] = useState(defaultPhone);
+  const [orderCode, setOrderCode] = useState('');
+  const [order, setOrder] = useState(null);
+  const [message, setMessage] = useState('');
+  async function search() {
+    try {
+      const res = await axios.get(`${API_BASE}/orders/track/`, { params: { order_code: orderCode, phone } });
+      setOrder(res.data); setMessage('');
+    } catch (err) { setOrder(null); setMessage(err.response?.data?.detail || 'No se encontró el pedido.'); }
+  }
+  return <section className="customer-tracking-panel">
+    <div className="tracking-search"><input value={orderCode} onChange={e => setOrderCode(e.target.value.toUpperCase())} placeholder="Número de pedido: CDKT-000001"/><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Teléfono"/><button onClick={search}>Ver estado</button></div>
+    {message && <p className="tracking-error">{message}</p>}
+    {order && <div className="tracking-result"><div className="tracking-status"><span>{order.order_code}</span><b>{ORDER_STATUS_LABELS[order.status] || order.status}</b><small>{new Date(order.updated_at || order.created_at).toLocaleString('es-ES')}</small></div><div className="tracking-steps">{['pending','accepted','preparing','ready','out_for_delivery','delivered'].map((s,i,arr) => { const current = arr.indexOf(order.status); return <div key={s} className={i <= current ? 'done' : ''}><i></i><span>{ORDER_STATUS_LABELS[s]}</span></div>; })}</div><SmoothRiderMap orderCode={order.order_code} phone={phone} active={order.status === 'out_for_delivery'}/><OrderChatPanel orderCode={order.order_code} phone={phone} closed={order.status === 'delivered'}/>{order.status === 'delivered' && <OrderReviewForm orderCode={order.order_code} phone={phone}/>}</div>}
+  </section>;
+}
+
 function AccountApp() {
   usePageChrome();
-  const [phone, setPhone] = useState(localStorage.getItem('customer_phone') || '+34');
+  const sessionPhone = getSessionCustomer()?.phone || localStorage.getItem('customer_phone') || '';
+  const [phone, setPhone] = useState(sessionPhone);
   const [customer, setCustomer] = useState(null);
   const [orders, setOrders] = useState([]);
   const [message, setMessage] = useState('');
+  const [tab, setTab] = useState('tracking');
 
   async function loadAccount() {
     try {
-      if (!phone || phone.length < 6) return setMessage('Introduce un teléfono válido.');
+      if (!phone || phone.replace(/\D/g, '').length < 9) return setMessage('Introduce un teléfono válido.');
       localStorage.setItem('customer_phone', phone);
-      const res = await axios.get(`${API_BASE}/customers/orders/?phone=${encodeURIComponent(phone)}`);
-      if (!res.data.exists) {
-        setCustomer(null);
-        setOrders([]);
-        return setMessage('No hemos encontrado pedidos para este teléfono.');
-      }
-      setCustomer(res.data.customer);
-      setOrders(res.data.orders || []);
-      setMessage('');
-    } catch (err) {
-      setMessage('No se pudo cargar la cuenta. Revisa el backend.');
-    }
+      const res = await axios.get(`${API_BASE}/customers/orders/`, { params: { phone } });
+      if (!res.data.exists) { setCustomer(null); setOrders([]); return setMessage('No hemos encontrado pedidos para este teléfono.'); }
+      setCustomer(res.data.customer); setOrders(res.data.orders || []); setMessage('');
+    } catch (err) { setMessage('No se pudo cargar la cuenta. Revisa el backend.'); }
   }
-
-  useEffect(() => {
-    if (phone && phone !== '+34') loadAccount();
-  }, []);
-
+  useEffect(() => { if (phone) loadAccount(); }, []);
   const totalSpent = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
 
-  return <div>
-    <Header title="Mi cuenta" subtitle="Historial de pedidos">
-      <button dataRoles="guest,customer,rider,staff,admin" onClick={() => window.location.href='/'}>Sitio</button>
-      <button dataRoles="staff,admin" onClick={() => window.location.href='/orders-live'}>Pedidos</button>
-    </Header>
-    {message && <div className="toast">{message}</div>}
-    <main className="orders-page account-page">
-      <h1>Cuenta del cliente</h1>
-      <div className="rider-login">
-        <input placeholder="Teléfono" value={phone} onChange={e => setPhone(e.target.value)} />
-        <button onClick={loadAccount}>Buscar</button>
-      </div>
-      {customer && <section className="summary-cards">
-        <div><b>{customer.name || 'Cliente'}</b><span>{customer.phone}</span></div>
-        <div><b>{customer.total_orders}</b><span>Pedidos registrados</span></div>
-        <div><b>{money(totalSpent)}</b><span>Gasto total</span></div>
-        <div><b>{customer.default_address || 'Sin dirección'}</b><span>Última dirección</span></div>
-      </section>}
-      <div className="orders-grid">
-        {orders.map(order => <article className={`order-card status-${order.status}`} key={order.id}>
-          <div className="order-head"><h2>{order.order_code}</h2><strong>{money(order.total)}</strong></div>
-          <p><b>Estado:</b> {order.status}</p>
-          <p><b>Pago:</b> {order.payment_method} · {order.payment_status}</p>
-          <p><b>Fecha:</b> {new Date(order.created_at).toLocaleString()}</p>
-          <div className="order-items">{(order.items || []).map(item => <div key={item.id}>{item.quantity} x {item.name_snapshot}<span>{money(item.total)}</span></div>)}</div>
-          <button className="mini-action" onClick={() => window.open(`/receipt/${order.order_code}`, '_blank')}>Ver ticket</button>
-        </article>)}
-      </div>
-    </main>
-  </div>;
+  return <div><Header title="Mi cuenta" subtitle="Pedidos, seguimiento y opiniones"><button dataRoles="guest,customer,rider,staff,admin" onClick={() => window.location.href='/'}>Sitio</button></Header>{message && <div className="toast">{message}</div>}<main className="orders-page account-page"><h1>Cuenta del cliente</h1><div className="account-tabs"><button className={tab==='tracking'?'active':''} onClick={() => setTab('tracking')}>Seguimiento en vivo</button><button className={tab==='history'?'active':''} onClick={() => setTab('history')}>Historial</button></div>{tab === 'tracking' && <CustomerTrackingPanel defaultPhone={phone}/>} {tab === 'history' && <><div className="rider-login"><input placeholder="Teléfono" value={phone} onChange={e => setPhone(e.target.value)}/><button onClick={loadAccount}>Buscar</button></div>{customer && <section className="summary-cards"><div><b>{customer.name || 'Cliente'}</b><span>{customer.phone}</span></div><div><b>{customer.total_orders}</b><span>Pedidos registrados</span></div><div><b>{money(totalSpent)}</b><span>Gasto total</span></div><div><b>{customer.default_address || 'Sin dirección'}</b><span>Última dirección</span></div></section>}<div className="orders-grid">{orders.map(order => <article className={`order-card status-${order.status}`} key={order.id}><div className="order-head"><h2>{order.order_code}</h2><strong>{money(order.total)}</strong></div><p><b>Estado:</b> {ORDER_STATUS_LABELS[order.status] || order.status}</p><p><b>Pago:</b> {order.payment_method} · {order.payment_status}</p><p><b>Fecha:</b> {new Date(order.created_at).toLocaleString('es-ES')}</p><div className="order-items">{(order.items || []).map(item => <div key={item.id}>{item.quantity} x {item.name_snapshot}<span>{money(item.total)}</span></div>)}</div><button className="mini-action" onClick={() => { setTab('tracking'); }}>Seguir pedido</button> <button className="mini-action" onClick={() => window.open(`/receipt/${order.order_code}`, '_blank')}>Ver ticket</button></article>)}</div></>}</main></div>;
 }
-
 
 function AdminLoginApp() {
   usePageChrome();
