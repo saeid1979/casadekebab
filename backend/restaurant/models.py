@@ -4,6 +4,7 @@ import string
 from django.db import models
 from django.utils import timezone
 from django.core.validators import MinValueValidator
+from django.contrib.auth.hashers import make_password, check_password
 
 
 class Category(models.Model):
@@ -111,6 +112,8 @@ class CustomerAddress(models.Model):
 class Rider(models.Model):
     name = models.CharField(max_length=160)
     phone = models.CharField(max_length=30, unique=True)
+    username = models.CharField(max_length=80, unique=True, blank=True, null=True)
+    password_hash = models.CharField(max_length=255, blank=True, default='')
     is_active = models.BooleanField(default=True)
     current_latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
     current_longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
@@ -119,6 +122,14 @@ class Rider(models.Model):
 
     class Meta:
         ordering = ['name']
+
+    def set_password(self, raw_password):
+        self.password_hash = make_password(raw_password)
+
+    def check_password(self, raw_password):
+        if not self.password_hash:
+            return False
+        return check_password(raw_password, self.password_hash)
 
     def __str__(self):
         return f'{self.name} - {self.phone}'

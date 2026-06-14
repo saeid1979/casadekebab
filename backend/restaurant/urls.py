@@ -16,6 +16,10 @@ from .views import (
     auto_assign_rider,
     rider_orders,
     rider_location,
+    rider_login,
+    secure_rider_orders,
+    secure_rider_location,
+    secure_rider_update_order_status,
     rider_update_order_status,
     customer_orders,
     dashboard_summary,
@@ -96,6 +100,10 @@ urlpatterns = [
     path('riders/', riders_list, name='riders-list'),
     path('rider/orders/', rider_orders, name='rider-orders'),
     path('rider/location/', rider_location, name='rider-location'),
+    path('auth/rider/login/', rider_login, name='rider-login'),
+    path('rider/secure/orders/', secure_rider_orders, name='secure-rider-orders'),
+    path('rider/secure/location/', secure_rider_location, name='secure-rider-location'),
+    path('rider/secure/orders/<str:order_code>/status/', secure_rider_update_order_status, name='secure-rider-update-order-status'),
     path('rider/orders/<str:order_code>/status/', rider_update_order_status, name='rider-update-order-status'),
 
 

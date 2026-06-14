@@ -99,6 +99,166 @@ def admin_me(request):
         }
     })
 
+
+RIDER_TOKEN_SALT = 'casa-de-kebab-rider-v1'
+RIDER_TOKEN_MAX_AGE = 60 * 60 * 24 * 7
+
+
+def build_rider_token(rider):
+    return signing.dumps({
+        'rider_id': rider.id,
+        'username': rider.username,
+        'phone': rider.phone,
+    }, salt=RIDER_TOKEN_SALT)
+
+
+def get_rider_from_request(request):
+    auth_header = request.META.get('HTTP_AUTHORIZATION', '') or ''
+    token = ''
+    if auth_header.lower().startswith('bearer '):
+        token = auth_header.split(' ', 1)[1].strip()
+    if not token:
+        return None
+    try:
+        data = signing.loads(token, salt=RIDER_TOKEN_SALT, max_age=RIDER_TOKEN_MAX_AGE)
+        return Rider.objects.get(
+            id=data.get('rider_id'),
+            username=data.get('username'),
+            is_active=True,
+        )
+    except Exception:
+        return None
+
+
+def rider_token_required(view_func):
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        rider = get_rider_from_request(request)
+        if not rider:
+            return Response(
+                {'detail': 'Rider login required or session expired.'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        request.rider = rider
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+@api_view(['POST'])
+def rider_login(request):
+    username = (request.data.get('username') or '').strip()
+    password = request.data.get('password') or ''
+    if not username or not password:
+        return Response(
+            {'detail': 'username and password are required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        rider = Rider.objects.get(username=username, is_active=True)
+    except Rider.DoesNotExist:
+        return Response(
+            {'detail': 'Usuario o contraseña incorrectos.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if not rider.check_password(password):
+        return Response(
+            {'detail': 'Usuario o contraseña incorrectos.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return Response({
+        'success': True,
+        'token': build_rider_token(rider),
+        'rider': RiderSerializer(rider).data,
+        'expires_in_hours': 168,
+    })
+
+
+@api_view(['GET'])
+@rider_token_required
+def secure_rider_orders(request):
+    rider = request.rider
+    qs = rider.orders.exclude(
+        status__in=[Order.STATUS_DELIVERED, Order.STATUS_CANCELLED]
+    ).prefetch_related('items', 'payments').order_by('-created_at')
+    return Response({
+        'rider': RiderSerializer(rider).data,
+        'orders': OrderSerializer(qs, many=True).data,
+    })
+
+
+@api_view(['POST'])
+@rider_token_required
+def secure_rider_location(request):
+    rider = request.rider
+    latitude = request.data.get('latitude')
+    longitude = request.data.get('longitude')
+    if latitude is None or longitude is None:
+        return Response(
+            {'detail': 'latitude and longitude are required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        lat = float(latitude)
+        lng = float(longitude)
+    except (TypeError, ValueError):
+        return Response({'detail': 'Invalid coordinates'}, status=status.HTTP_400_BAD_REQUEST)
+
+    normal = 40.80 <= lat <= 41.12 and -5.90 <= lng <= -5.35
+    swapped = 40.80 <= lng <= 41.12 and -5.90 <= lat <= -5.35
+    if swapped:
+        lat, lng = lng, lat
+        normal = True
+    if not normal:
+        return Response(
+            {'detail': 'La ubicación del repartidor está fuera de Salamanca.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    rider.current_latitude = round(lat, 7)
+    rider.current_longitude = round(lng, 7)
+    rider.last_location_at = timezone.now()
+    rider.save(update_fields=['current_latitude', 'current_longitude', 'last_location_at'])
+    return Response(RiderSerializer(rider).data)
+
+
+@api_view(['POST'])
+@rider_token_required
+def secure_rider_update_order_status(request, order_code):
+    rider = request.rider
+    new_status = (request.data.get('status') or '').strip()
+    if not new_status:
+        return Response({'detail': 'status is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        order = Order.objects.prefetch_related('items', 'payments').get(order_code=order_code)
+    except Order.DoesNotExist:
+        return Response({'detail': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if order.assigned_rider_id != rider.id:
+        return Response(
+            {'detail': 'Este pedido no está asignado a este repartidor.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    allowed = {
+        Order.STATUS_PENDING: {Order.STATUS_ACCEPTED, Order.STATUS_OUT_FOR_DELIVERY, Order.STATUS_CANCELLED},
+        Order.STATUS_ACCEPTED: {Order.STATUS_OUT_FOR_DELIVERY, Order.STATUS_CANCELLED},
+        Order.STATUS_PREPARING: {Order.STATUS_OUT_FOR_DELIVERY, Order.STATUS_CANCELLED},
+        Order.STATUS_READY: {Order.STATUS_OUT_FOR_DELIVERY, Order.STATUS_CANCELLED},
+        Order.STATUS_OUT_FOR_DELIVERY: {Order.STATUS_DELIVERED, Order.STATUS_CANCELLED},
+    }
+
+    if new_status not in allowed.get(order.status, set()):
+        return Response(
+            {'detail': f'Invalid transition: {order.status} -> {new_status}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    order.status = new_status
+    order.save(update_fields=['status', 'updated_at'])
+    return Response(OrderSerializer(order).data)
+
+
 def find_available_rider():
     """Return the active rider with the fewest active delivery orders.
 
