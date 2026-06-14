@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 import uuid
 import requests
 from django.conf import settings
