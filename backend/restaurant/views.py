@@ -496,78 +496,148 @@ def test_telegram(request):
     return Response({'success': ok})
 
 
+def _parse_boolean(value, field_name='is_active'):
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {'true', '1', 'yes', 'on'}:
+        return True
+    if normalized in {'false', '0', 'no', 'off'}:
+        return False
+    raise ValueError(f'{field_name} must be true or false')
+
+
+def _validate_rider_credentials(name, phone, username, password=None, rider=None):
+    errors = {}
+
+    if not name:
+        errors['name'] = 'El nombre es obligatorio.'
+    if not phone:
+        errors['phone'] = 'El teléfono es obligatorio.'
+    if not username:
+        errors['username'] = 'El nombre de usuario es obligatorio.'
+    elif len(username) < 3:
+        errors['username'] = 'El nombre de usuario debe tener al menos 3 caracteres.'
+
+    if password is not None and password != '' and len(password) < 6:
+        errors['password'] = 'La contraseña debe tener al menos 6 caracteres.'
+
+    phone_qs = Rider.objects.filter(phone=phone)
+    username_qs = Rider.objects.filter(username=username)
+    if rider is not None:
+        phone_qs = phone_qs.exclude(id=rider.id)
+        username_qs = username_qs.exclude(id=rider.id)
+
+    if phone and phone_qs.exists():
+        errors['phone'] = 'Este teléfono ya está registrado para otro repartidor.'
+    if username and username_qs.exists():
+        errors['username'] = 'Este nombre de usuario ya está en uso.'
+
+    return errors
+
+
 @api_view(['GET', 'POST'])
 @admin_token_required
 def riders_list(request):
-    """List all riders for admin management or create/reactivate a rider."""
+    """Admin-only list and creation endpoint for rider accounts."""
     if request.method == 'GET':
         qs = Rider.objects.all().order_by('-is_active', 'name')
         return Response(RiderSerializer(qs, many=True).data)
 
     name = (request.data.get('name') or '').strip()
     phone = (request.data.get('phone') or '').strip()
-    if not name or not phone:
+    username = (request.data.get('username') or '').strip()
+    password = request.data.get('password') or ''
+
+    try:
+        is_active = _parse_boolean(request.data.get('is_active', True))
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    errors = _validate_rider_credentials(
+        name=name,
+        phone=phone,
+        username=username,
+        password=password,
+    )
+    if not password:
+        errors['password'] = 'La contraseña es obligatoria para crear el repartidor.'
+    if errors:
         return Response(
-            {'detail': 'name and phone are required'},
+            {'detail': 'Revisa los datos del repartidor.', 'errors': errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    rider, created = Rider.objects.get_or_create(
+    rider = Rider(
+        name=name,
         phone=phone,
-        defaults={'name': name, 'is_active': True},
+        username=username,
+        is_active=is_active,
     )
-    if not created:
-        rider.name = name
-        rider.is_active = True
-        rider.save(update_fields=['name', 'is_active'])
+    rider.set_password(password)
+    rider.save()
 
     return Response(
         RiderSerializer(rider).data,
-        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        status=status.HTTP_201_CREATED,
     )
 
 
-@api_view(['PATCH'])
+@api_view(['GET', 'PATCH'])
 @admin_token_required
 def rider_detail(request, rider_id):
-    """Allow an admin to activate or deactivate a rider."""
+    """Admin-only read/update endpoint, including password and active state."""
     try:
         rider = Rider.objects.get(id=rider_id)
     except Rider.DoesNotExist:
         return Response(
-            {'detail': 'Rider not found'},
+            {'detail': 'Repartidor no encontrado.'},
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    if 'is_active' not in request.data:
+    if request.method == 'GET':
+        return Response(RiderSerializer(rider).data)
+
+    name = (request.data.get('name', rider.name) or '').strip()
+    phone = (request.data.get('phone', rider.phone) or '').strip()
+    username = (request.data.get('username', rider.username) or '').strip()
+    password = request.data.get('password', '')
+
+    try:
+        is_active = _parse_boolean(
+            request.data.get('is_active', rider.is_active)
+        )
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    errors = _validate_rider_credentials(
+        name=name,
+        phone=phone,
+        username=username,
+        password=password,
+        rider=rider,
+    )
+    if errors:
         return Response(
-            {'detail': 'is_active is required'},
+            {'detail': 'Revisa los datos del repartidor.', 'errors': errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    raw_value = request.data.get('is_active')
-    if isinstance(raw_value, bool):
-        is_active = raw_value
-    elif str(raw_value).strip().lower() in {'true', '1', 'yes', 'on'}:
-        is_active = True
-    elif str(raw_value).strip().lower() in {'false', '0', 'no', 'off'}:
-        is_active = False
-    else:
-        return Response(
-            {'detail': 'is_active must be true or false'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
+    rider.name = name
+    rider.phone = phone
+    rider.username = username
     rider.is_active = is_active
-    rider.save(update_fields=['is_active'])
+
+    update_fields = ['name', 'phone', 'username', 'is_active']
+    if password:
+        rider.set_password(password)
+        update_fields.append('password_hash')
+
+    rider.save(update_fields=update_fields)
 
     return Response({
         'success': True,
-        'message': (
-            'Repartidor activado correctamente.'
-            if is_active
-            else 'Repartidor desactivado correctamente.'
-        ),
+        'message': 'Datos del repartidor actualizados correctamente.',
         'rider': RiderSerializer(rider).data,
     })
 

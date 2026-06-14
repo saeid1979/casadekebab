@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage
+from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview
 
 class MenuOptionInline(admin.TabularInline):
     model = MenuOption
@@ -78,9 +78,37 @@ class PaymentAdmin(admin.ModelAdmin):
 
 @admin.register(Rider)
 class RiderAdmin(admin.ModelAdmin):
-    list_display = ('name', 'phone', 'is_active', 'last_location_at', 'created_at')
+    list_display = (
+        'name', 'username', 'phone', 'is_active',
+        'last_location_at', 'created_at'
+    )
+    list_editable = ('is_active',)
     list_filter = ('is_active',)
-    search_fields = ('name', 'phone')
+    search_fields = ('name', 'username', 'phone')
+    readonly_fields = (
+        'password_hash', 'current_latitude', 'current_longitude',
+        'last_location_at', 'created_at'
+    )
+    fieldsets = (
+        ('Datos del repartidor', {
+            'fields': ('name', 'username', 'phone', 'is_active')
+        }),
+        ('Seguridad', {
+            'fields': ('password_hash',),
+            'description': (
+                'La contraseña se gestiona de forma segura desde '
+                'Admin PRO > Repartidores.'
+            ),
+        }),
+        ('Ubicación', {
+            'fields': (
+                'current_latitude', 'current_longitude', 'last_location_at'
+            ),
+        }),
+        ('Registro', {
+            'fields': ('created_at',),
+        }),
+    )
 
 
 @admin.register(RestaurantSettings)
@@ -101,3 +129,21 @@ class SmsGatewayMessageAdmin(admin.ModelAdmin):
     list_filter = ('status', 'created_at')
     search_fields = ('phone', 'message', 'device_id', 'error')
     readonly_fields = ('created_at', 'updated_at', 'sent_at')
+
+
+
+@admin.register(OrderChatMessage)
+class OrderChatMessageAdmin(admin.ModelAdmin):
+    list_display = ('order', 'sender_type', 'sender_name', 'created_at', 'is_read')
+    list_filter = ('sender_type', 'is_read', 'created_at')
+    search_fields = ('order__order_code', 'sender_name', 'message')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(OrderReview)
+class OrderReviewAdmin(admin.ModelAdmin):
+    list_display = ('order', 'customer_name', 'rating', 'status', 'created_at', 'approved_at')
+    list_editable = ('status',)
+    list_filter = ('status', 'rating', 'created_at')
+    search_fields = ('order__order_code', 'customer_name', 'customer_phone', 'comment')
+    readonly_fields = ('created_at', 'approved_at')

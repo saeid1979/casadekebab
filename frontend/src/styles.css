@@ -2069,51 +2069,157 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
 }
 
 
-/* Admin rider active/inactive controls */
-.rider-admin-list {
-  display: grid;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.rider-admin-card {
+/* Admin PRO: complete rider account management */
+.rider-panel-heading,
+.rider-editor-title,
+.rider-directory-heading,
+.rider-directory-identity,
+.rider-directory-actions,
+.rider-form-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding: 13px 14px;
-  border: 1px solid #e4ddd7;
-  border-radius: 14px;
+  gap: 12px;
+}
+
+.rider-management-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.rider-delivery-orders-card {
+  grid-column: 1 / -1;
+}
+
+.admin-rider-editor-form {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-rider-editor-form label {
+  margin-top: 7px;
+  color: #4e4540;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-rider-editor-form > input,
+.rider-password-field input {
+  width: 100%;
+  border: 1px solid #d8cec6;
+  border-radius: 12px;
   background: #fff;
-  transition: opacity .2s ease, border-color .2s ease, background .2s ease;
+  padding: 12px 13px;
+  font-size: 15px;
 }
 
-.rider-admin-card.is-active {
-  border-color: #b9dfc6;
-  background: #f7fff9;
+.admin-rider-editor-form > input:focus,
+.rider-password-field input:focus {
+  border-color: #9f2019;
+  box-shadow: 0 0 0 3px rgba(159, 32, 25, .10);
+  outline: none;
 }
 
-.rider-admin-card.is-inactive {
-  border-color: #e2e2e2;
+.rider-password-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.rider-password-field button,
+.rider-cancel-edit,
+.rider-edit-button,
+.rider-enable-button,
+.rider-disable-button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.rider-password-field button {
+  background: #28221f;
+  color: #fff;
+}
+
+.rider-form-help {
+  color: #756b65;
+  line-height: 1.45;
+}
+
+.rider-active-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 8px 0;
+  border: 1px solid #d9e9de;
+  border-radius: 12px;
+  background: #f5fff8;
+  padding: 12px;
+}
+
+.rider-active-check input {
+  width: 18px;
+  height: 18px;
+}
+
+.rider-form-actions .pay {
+  flex: 1;
+  margin: 0;
+}
+
+.rider-cancel-edit {
+  background: #ece8e5;
+  color: #4d443f;
+}
+
+.rider-directory {
+  display: grid;
+  gap: 10px;
+}
+
+.rider-directory-row {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.2fr) minmax(190px, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid #e5ddd7;
+  border-radius: 15px;
+  background: #fff;
+  padding: 13px;
+}
+
+.rider-directory-row.active {
+  border-color: #bbdfc7;
+  background: #f8fff9;
+}
+
+.rider-directory-row.inactive {
   background: #f5f5f5;
   opacity: .78;
 }
 
-.rider-admin-main,
-.rider-admin-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.rider-directory-identity {
+  justify-content: flex-start;
 }
 
-.rider-admin-main b,
-.rider-admin-main small {
+.rider-directory-identity b,
+.rider-directory-identity small,
+.rider-directory-meta span {
   display: block;
 }
 
-.rider-admin-main small {
-  margin-top: 3px;
-  color: #6f655d;
+.rider-directory-identity small,
+.rider-directory-meta {
+  color: #70665f;
+  font-size: 12px;
+}
+
+.rider-directory-meta {
+  line-height: 1.65;
 }
 
 .rider-status-dot {
@@ -2134,12 +2240,10 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
 }
 
 .rider-state-badge {
-  display: inline-flex;
-  align-items: center;
   border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 800;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-weight: 900;
 }
 
 .rider-state-badge.active {
@@ -2148,42 +2252,64 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
 }
 
 .rider-state-badge.inactive {
-  background: #ececec;
+  background: #e7e7e7;
   color: #555;
 }
 
-.rider-enable-button,
-.rider-disable-button {
-  border: 0;
-  border-radius: 10px;
-  padding: 9px 12px;
+.rider-edit-button {
+  background: #29231f;
   color: #fff;
-  font-weight: 800;
-  cursor: pointer;
 }
 
 .rider-enable-button {
   background: #16803b;
+  color: #fff;
 }
 
 .rider-disable-button {
   background: #a51c14;
+  color: #fff;
 }
 
 .rider-enable-button:disabled,
 .rider-disable-button:disabled {
-  opacity: .55;
   cursor: wait;
+  opacity: .55;
 }
 
-@media (max-width: 700px) {
-  .rider-admin-card {
-    align-items: flex-start;
+@media (max-width: 1050px) {
+  .rider-management-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .rider-delivery-orders-card {
+    grid-column: auto;
+  }
+
+  .rider-directory-row {
+    grid-template-columns: 1fr;
+  }
+
+  .rider-directory-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 600px) {
+  .rider-panel-heading,
+  .rider-editor-title,
+  .rider-directory-heading,
+  .rider-form-actions {
+    align-items: stretch;
     flex-direction: column;
   }
 
-  .rider-admin-actions {
-    width: 100%;
-    justify-content: space-between;
+  .rider-password-field {
+    grid-template-columns: 1fr;
+  }
+
+  .rider-directory-actions button {
+    flex: 1;
   }
 }

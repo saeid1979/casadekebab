@@ -1554,7 +1554,6 @@ function LiveOrdersApp() {
   usePageChrome();
   const [orders, setOrders] = useState([]);
   const [riders, setRiders] = useState([]);
-  const [newRider, setNewRider] = useState({ name: '', phone: '' });
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [deliveryPoint, setDeliveryPoint] = useState(null);
@@ -1594,42 +1593,6 @@ function LiveOrdersApp() {
       await loadOrders();
     } catch (err) {
       setMessage('No se pudo actualizar el estado.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function addRider() {
-    try {
-      if (!newRider.name || !newRider.phone) return setMessage('Nombre y teléfono del repartidor son obligatorios.');
-      await axios.post(`${API_BASE}/riders/`, newRider);
-      setNewRider({ name: '', phone: '' });
-      await loadRiders();
-      setMessage('Repartidor guardado.');
-    } catch (err) {
-      setMessage('No se pudo guardar el repartidor.');
-    }
-  }
-
-  async function toggleRiderActive(rider) {
-    const nextActive = !rider.is_active;
-    const actionText = nextActive ? 'activar' : 'desactivar';
-    if (!window.confirm(`¿Seguro que deseas ${actionText} a ${rider.name}?`)) return;
-
-    try {
-      setLoading(true);
-      const res = await axios.patch(
-        `${API_BASE}/riders/${rider.id}/`,
-        { is_active: nextActive },
-        { headers: adminAuthHeaders() }
-      );
-      setRiders(current => current.map(item =>
-        item.id === rider.id ? (res.data.rider || { ...item, is_active: nextActive }) : item
-      ));
-      setMessage(res.data.message || `Repartidor ${nextActive ? 'activado' : 'desactivado'}.`);
-      await loadOrders();
-    } catch (err) {
-      setMessage(err?.response?.data?.detail || 'No se pudo cambiar el estado del repartidor.');
     } finally {
       setLoading(false);
     }
@@ -1677,36 +1640,15 @@ function LiveOrdersApp() {
       <h1>Pedidos en vivo</h1>
       <p className="muted">Se actualiza automáticamente cada 10 segundos.</p>
       <section className="rider-panel">
-        <h2>Repartidores</h2>
-        <div className="inline-form">
-          <input placeholder="Nombre" value={newRider.name} onChange={e => setNewRider({...newRider, name: e.target.value})}/>
-          <input placeholder="Teléfono" value={newRider.phone} onChange={e => setNewRider({...newRider, phone: e.target.value})}/>
-          <button onClick={addRider}>Añadir repartidor</button>
+        <div className="rider-panel-heading">
+          <div>
+            <h2>Repartidores activos</h2>
+            <p className="muted">La creación, edición y contraseña se gestionan desde Admin PRO.</p>
+          </div>
+          <button className="mini-action" onClick={() => window.location.href='/dashboard'}>Gestionar en Admin</button>
         </div>
-        <div className="rider-admin-list">
-          {riders.map(r => <article className={`rider-admin-card ${r.is_active ? 'is-active' : 'is-inactive'}`} key={r.id}>
-            <div className="rider-admin-main">
-              <span className={`rider-status-dot ${r.is_active ? 'active' : 'inactive'}`}></span>
-              <div>
-                <b>{r.name}</b>
-                <small>{r.phone} · {r.active_orders_count} pedidos activos</small>
-              </div>
-            </div>
-            <div className="rider-admin-actions">
-              <span className={`rider-state-badge ${r.is_active ? 'active' : 'inactive'}`}>
-                {r.is_active ? 'Activo' : 'Inactivo'}
-              </span>
-              <button
-                type="button"
-                disabled={loading}
-                className={r.is_active ? 'rider-disable-button' : 'rider-enable-button'}
-                onClick={() => toggleRiderActive(r)}
-              >
-                {r.is_active ? 'Desactivar' : 'Activar'}
-              </button>
-            </div>
-          </article>)}
-          {!riders.length && <p className="muted">No hay repartidores registrados.</p>}
+        <div className="rider-list">
+          {riders.filter(r => r.is_active).map(r => <span key={r.id}>{r.name} · {r.phone} · {r.active_orders_count} pedidos</span>)}
         </div>
       </section>
       <div className="orders-grid">
@@ -2909,7 +2851,17 @@ function DashboardApp() {
   const [items, setItems] = useState([]);
   const [settings, setSettings] = useState(null);
   const [message, setMessage] = useState('');
-  const [newRider, setNewRider] = useState({ name: '', phone: '' });
+  const emptyRiderForm = {
+    id: null,
+    name: '',
+    phone: '',
+    username: '',
+    password: '',
+    is_active: true,
+  };
+  const [riderForm, setRiderForm] = useState(emptyRiderForm);
+  const [riderSaving, setRiderSaving] = useState(false);
+  const [showRiderPassword, setShowRiderPassword] = useState(false);
 
   async function loadAdminPanel() {
     try {
@@ -2959,20 +2911,100 @@ function DashboardApp() {
     }
   }
 
-  async function createRiderFromAdmin() {
+  function startEditRider(rider) {
+    setRiderForm({
+      id: rider.id,
+      name: rider.name || '',
+      phone: rider.phone || '',
+      username: rider.username || '',
+      password: '',
+      is_active: Boolean(rider.is_active),
+    });
+    setShowRiderPassword(false);
+    window.setTimeout(() => {
+      document.getElementById('admin-rider-editor')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 50);
+  }
+
+  function resetRiderForm() {
+    setRiderForm(emptyRiderForm);
+    setShowRiderPassword(false);
+  }
+
+  function riderErrorText(error) {
+    const errors = error?.response?.data?.errors;
+    if (errors) {
+      return Object.values(errors).filter(Boolean).join(' ');
+    }
+    return error?.response?.data?.detail || 'No se pudo guardar el repartidor.';
+  }
+
+  async function saveRiderFromAdmin(e) {
+    e?.preventDefault();
+    const payload = {
+      name: riderForm.name.trim(),
+      phone: riderForm.phone.trim(),
+      username: riderForm.username.trim(),
+      password: riderForm.password,
+      is_active: riderForm.is_active,
+    };
+
+    if (!payload.name || !payload.phone || !payload.username) {
+      setMessage('Nombre, teléfono y nombre de usuario son obligatorios.');
+      return;
+    }
+    if (!riderForm.id && !payload.password) {
+      setMessage('La contraseña es obligatoria para un repartidor nuevo.');
+      return;
+    }
+    if (payload.password && payload.password.length < 6) {
+      setMessage('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+
     try {
-      const name = newRider.name.trim();
-      const phone = newRider.phone.trim();
-      if (!name || !phone) {
-        setMessage('Nombre y teléfono del repartidor son obligatorios.');
-        return;
+      setRiderSaving(true);
+      if (riderForm.id) {
+        await axios.patch(`${API_BASE}/riders/${riderForm.id}/`, payload);
+        setMessage('Repartidor actualizado correctamente.');
+      } else {
+        await axios.post(`${API_BASE}/riders/`, payload);
+        setMessage('Repartidor creado correctamente.');
       }
-      await axios.post(`${API_BASE}/riders/`, { name, phone });
-      setNewRider({ name: '', phone: '' });
-      setMessage('Repartidor creado o actualizado correctamente.');
+      resetRiderForm();
       await loadAdminPanel();
     } catch (err) {
-      setMessage(err?.response?.data?.detail || 'No se pudo crear el repartidor.');
+      setMessage(riderErrorText(err));
+    } finally {
+      setRiderSaving(false);
+    }
+  }
+
+  async function toggleRiderFromAdmin(rider) {
+    const nextActive = !rider.is_active;
+    const action = nextActive ? 'activar' : 'desactivar';
+    if (!window.confirm(`¿Seguro que deseas ${action} a ${rider.name}?`)) return;
+
+    try {
+      setRiderSaving(true);
+      await axios.patch(`${API_BASE}/riders/${rider.id}/`, {
+        name: rider.name,
+        phone: rider.phone,
+        username: rider.username,
+        is_active: nextActive,
+      });
+      setMessage(`Repartidor ${nextActive ? 'activado' : 'desactivado'} correctamente.`);
+      if (riderForm.id === rider.id) {
+        setRiderForm(current => ({ ...current, is_active: nextActive }));
+      }
+      await loadAdminPanel();
+    } catch (err) {
+      setMessage(riderErrorText(err));
+    } finally {
+      setRiderSaving(false);
     }
   }
 
@@ -3048,9 +3080,134 @@ function DashboardApp() {
         <div className="admin-card"><h2>Clientes recientes</h2>{(data.recent_customers || []).map((c, i) => <p key={i}><b>{c.name || 'Sin nombre'}</b><span>{c.phone} · {c.total_orders} pedidos</span></p>)}</div>
       </section>}
 
-      {tab === 'orders' && <section className="admin-card"><h2>Pedidos vivos</h2><p className="muted">Los pedidos de entrega se asignan automáticamente al repartidor activo con menos pedidos. También puedes forzar la asignación desde aquí.</p><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Código</th><th>Cliente</th><th>Tipo</th><th>Total</th><th>Estado</th><th>Pago</th><th>Repartidor</th><th>Acciones</th></tr></thead><tbody>{activeOrders.map(o => <tr key={o.order_code}><td><b>{o.order_code}</b><small>{new Date(o.created_at).toLocaleString()}</small></td><td>{o.customer_name}<small>{o.customer_phone}</small></td><td>{o.delivery_type === 'delivery' ? 'Entrega' : 'Recoger'}</td><td>{money(o.total)}</td><td>{o.status}</td><td>{o.payment_method} · {o.payment_status}</td><td>{o.delivery_type === 'delivery' ? <><select className="admin-rider-select" value={o.assigned_rider_data?.id || ''} onChange={e => assignRiderFromAdmin(o.order_code, e.target.value)}><option value="">Sin asignar</option>{riders.map(r => <option key={r.id} value={r.id}>{r.name} · {r.active_orders_count || 0}</option>)}</select><button className="mini-action" onClick={() => autoAssignRider(o.order_code)}>Auto</button></> : '-'}</td><td><button onClick={() => quickStatus(o.order_code,'accepted')}>Aceptar</button><button onClick={() => quickStatus(o.order_code,'preparing')}>Preparar</button><button onClick={() => quickStatus(o.order_code,'out_for_delivery')}>Enviar</button><button onClick={() => quickStatus(o.order_code,'delivered')}>Entregado</button><button onClick={() => quickPayment(o.order_code,'paid')}>Pagado</button></td></tr>)}</tbody></table></div></section>}
+      {tab === 'orders' && <section className="admin-card"><h2>Pedidos vivos</h2><p className="muted">Los pedidos de entrega se asignan automáticamente al repartidor activo con menos pedidos. También puedes forzar la asignación desde aquí.</p><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Código</th><th>Cliente</th><th>Tipo</th><th>Total</th><th>Estado</th><th>Pago</th><th>Repartidor</th><th>Acciones</th></tr></thead><tbody>{activeOrders.map(o => <tr key={o.order_code}><td><b>{o.order_code}</b><small>{new Date(o.created_at).toLocaleString()}</small></td><td>{o.customer_name}<small>{o.customer_phone}</small></td><td>{o.delivery_type === 'delivery' ? 'Entrega' : 'Recoger'}</td><td>{money(o.total)}</td><td>{o.status}</td><td>{o.payment_method} · {o.payment_status}</td><td>{o.delivery_type === 'delivery' ? <><select className="admin-rider-select" value={o.assigned_rider_data?.id || ''} onChange={e => assignRiderFromAdmin(o.order_code, e.target.value)}><option value="">Sin asignar</option>{riders.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name} · {r.active_orders_count || 0}</option>)}</select><button className="mini-action" onClick={() => autoAssignRider(o.order_code)}>Auto</button></> : '-'}</td><td><button onClick={() => quickStatus(o.order_code,'accepted')}>Aceptar</button><button onClick={() => quickStatus(o.order_code,'preparing')}>Preparar</button><button onClick={() => quickStatus(o.order_code,'out_for_delivery')}>Enviar</button><button onClick={() => quickStatus(o.order_code,'delivered')}>Entregado</button><button onClick={() => quickPayment(o.order_code,'paid')}>Pagado</button></td></tr>)}</tbody></table></div></section>}
 
-      {tab === 'riders' && <section className="admin-grid-2 riders-admin-grid"><div className="admin-card"><h2>Crear repartidor</h2><p className="muted">El administrador puede registrar repartidores con nombre y teléfono. El teléfono es la clave para entrar en la vista repartidor.</p><div className="admin-rider-form"><input placeholder="Nombre del repartidor" value={newRider.name} onChange={e => setNewRider({...newRider, name: e.target.value})}/><input placeholder="Teléfono" value={newRider.phone} onChange={e => setNewRider({...newRider, phone: e.target.value})}/><button className="pay" onClick={createRiderFromAdmin}>Guardar repartidor</button></div><h2>Lista de repartidores</h2>{riders.map(r => <p key={r.id} className="rider-admin-row"><b>{r.name}</b><span>{r.phone} · {r.active_orders_count || 0} pedidos activos · {r.is_active ? 'Activo' : 'Pausado'}</span></p>)}{!riders.length && <p className="muted">Todavía no hay repartidores.</p>}</div><div className="admin-card"><h2>Pedidos para reparto</h2><p className="muted">Usa Auto para asignar el pedido al repartidor libre con menos pedidos activos.</p>{orders.filter(o => o.delivery_type === 'delivery').slice(0,20).map(o => <div className="rider-order-row" key={o.order_code}><p><b>{o.order_code}</b><span>{o.address || 'Sin dirección'} · {o.assigned_rider_data?.name || 'Sin repartidor'}</span></p><button className="mini-action" onClick={() => autoAssignRider(o.order_code)}>Asignar libre</button></div>)}</div></section>}
+      {tab === 'riders' && <section className="rider-management-layout">
+        <div className="admin-card rider-editor-card" id="admin-rider-editor">
+          <div className="rider-editor-title">
+            <div>
+              <span className="admin-kicker">{riderForm.id ? 'Edición' : 'Nuevo usuario'}</span>
+              <h2>{riderForm.id ? 'Editar repartidor' : 'Añadir repartidor'}</h2>
+            </div>
+            {riderForm.id && <button className="mini-action" type="button" onClick={resetRiderForm}>Nuevo</button>}
+          </div>
+          <p className="muted">
+            El nombre de usuario y la contraseña se utilizan para entrar en la aplicación del repartidor.
+          </p>
+          <form className="admin-rider-editor-form" onSubmit={saveRiderFromAdmin}>
+            <label>Nombre completo *</label>
+            <input
+              placeholder="Ejemplo: Saeid Javid"
+              value={riderForm.name}
+              onChange={e => setRiderForm({...riderForm, name: e.target.value})}
+              autoComplete="name"
+            />
+
+            <label>Teléfono *</label>
+            <input
+              placeholder="Ejemplo: 613473564"
+              value={riderForm.phone}
+              onChange={e => setRiderForm({...riderForm, phone: e.target.value})}
+              inputMode="tel"
+              autoComplete="tel"
+            />
+
+            <label>Nombre de usuario *</label>
+            <input
+              placeholder="Ejemplo: saeid_rider"
+              value={riderForm.username}
+              onChange={e => setRiderForm({...riderForm, username: e.target.value})}
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoComplete="username"
+            />
+
+            <label>{riderForm.id ? 'Nueva contraseña' : 'Contraseña *'}</label>
+            <div className="rider-password-field">
+              <input
+                placeholder={riderForm.id ? 'Déjala vacía para conservar la actual' : 'Mínimo 6 caracteres'}
+                type={showRiderPassword ? 'text' : 'password'}
+                value={riderForm.password}
+                onChange={e => setRiderForm({...riderForm, password: e.target.value})}
+                autoComplete="new-password"
+              />
+              <button type="button" onClick={() => setShowRiderPassword(value => !value)}>
+                {showRiderPassword ? 'Ocultar' : 'Mostrar'}
+              </button>
+            </div>
+            {riderForm.id && <small className="rider-form-help">
+              Para cambiar la contraseña escribe una nueva. Si no quieres cambiarla, deja este campo vacío.
+            </small>}
+
+            <label className="rider-active-check">
+              <input
+                type="checkbox"
+                checked={riderForm.is_active}
+                onChange={e => setRiderForm({...riderForm, is_active: e.target.checked})}
+              />
+              <span>Cuenta activa y disponible para recibir pedidos</span>
+            </label>
+
+            <div className="rider-form-actions">
+              <button className="pay" type="submit" disabled={riderSaving}>
+                {riderSaving ? 'Guardando...' : riderForm.id ? 'Guardar cambios' : 'Crear repartidor'}
+              </button>
+              {riderForm.id && <button className="rider-cancel-edit" type="button" onClick={resetRiderForm}>
+                Cancelar edición
+              </button>}
+            </div>
+          </form>
+        </div>
+
+        <div className="admin-card rider-directory-card">
+          <div className="rider-directory-heading">
+            <div>
+              <h2>Repartidores registrados</h2>
+              <p className="muted">{riders.length} cuentas · {riders.filter(r => r.is_active).length} activas</p>
+            </div>
+          </div>
+          <div className="rider-directory">
+            {riders.map(r => <article key={r.id} className={`rider-directory-row ${r.is_active ? 'active' : 'inactive'}`}>
+              <div className="rider-directory-identity">
+                <span className={`rider-status-dot ${r.is_active ? 'active' : 'inactive'}`}></span>
+                <div>
+                  <b>{r.name}</b>
+                  <small>@{r.username || 'sin_usuario'} · {r.phone}</small>
+                </div>
+              </div>
+              <div className="rider-directory-meta">
+                <span>{r.active_orders_count || 0} pedidos activos</span>
+                <span>{r.has_password ? 'Contraseña configurada' : 'Sin contraseña'}</span>
+                <span>{r.last_location_at ? `GPS: ${new Date(r.last_location_at).toLocaleString()}` : 'GPS sin registrar'}</span>
+              </div>
+              <div className="rider-directory-actions">
+                <span className={`rider-state-badge ${r.is_active ? 'active' : 'inactive'}`}>
+                  {r.is_active ? 'Activo' : 'Inactivo'}
+                </span>
+                <button type="button" className="rider-edit-button" onClick={() => startEditRider(r)}>Editar</button>
+                <button
+                  type="button"
+                  className={r.is_active ? 'rider-disable-button' : 'rider-enable-button'}
+                  disabled={riderSaving}
+                  onClick={() => toggleRiderFromAdmin(r)}
+                >
+                  {r.is_active ? 'Desactivar' : 'Activar'}
+                </button>
+              </div>
+            </article>)}
+            {!riders.length && <p className="muted">Todavía no hay repartidores.</p>}
+          </div>
+        </div>
+
+        <div className="admin-card rider-delivery-orders-card">
+          <h2>Pedidos para reparto</h2>
+          <p className="muted">Auto asigna al repartidor activo con menos pedidos pendientes.</p>
+          {orders.filter(o => o.delivery_type === 'delivery').slice(0,20).map(o => <div className="rider-order-row" key={o.order_code}>
+            <p><b>{o.order_code}</b><span>{o.address || 'Sin dirección'} · {o.assigned_rider_data?.name || 'Sin repartidor'}</span></p>
+            <button className="mini-action" onClick={() => autoAssignRider(o.order_code)}>Asignar libre</button>
+          </div>)}
+        </div>
+      </section>}
 
       {tab === 'tracking' && <section className="admin-tracking-grid">{orders.filter(o => o.delivery_type === 'delivery' && !['delivered','cancelled'].includes(o.status)).map(o => <article className="admin-card tracking-admin-card" key={o.order_code}><div className="order-head"><h2>{o.order_code}</h2><strong>{o.status}</strong></div><p><b>Cliente:</b> {o.customer_name || 'Sin nombre'} · {o.customer_phone}</p><p><b>Dirección:</b> {o.address || '-'}</p><p><b>Repartidor:</b> {o.assigned_rider_data?.name || 'Sin asignar'} {o.assigned_rider_data?.phone ? `· ${o.assigned_rider_data.phone}` : ''}</p>{o.assigned_rider_data?.last_location_at && <small>Última ubicación: {new Date(o.assigned_rider_data.last_location_at).toLocaleString()}</small>}<TrackingMap order={o} compact /></article>)}{!orders.filter(o => o.delivery_type === 'delivery' && !['delivered','cancelled'].includes(o.status)).length && <div className="admin-card"><h2>Sin pedidos en reparto</h2><p className="muted">Cuando un pedido se asigne a un repartidor, aparecerá aquí con su ubicación GPS.</p></div>}</section>}
 

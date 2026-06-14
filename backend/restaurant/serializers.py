@@ -179,13 +179,23 @@ class CategoryWithItemsSerializer(serializers.ModelSerializer):
 
 class RiderSerializer(serializers.ModelSerializer):
     active_orders_count = serializers.SerializerMethodField()
+    has_password = serializers.SerializerMethodField()
 
     class Meta:
         model = Rider
-        fields = ['id', 'name', 'phone', 'is_active', 'current_latitude', 'current_longitude', 'last_location_at', 'active_orders_count', 'created_at']
+        fields = [
+            'id', 'name', 'phone', 'username', 'is_active',
+            'current_latitude', 'current_longitude', 'last_location_at',
+            'active_orders_count', 'has_password', 'created_at'
+        ]
 
     def get_active_orders_count(self, obj):
-        return obj.orders.exclude(status__in=[Order.STATUS_DELIVERED, Order.STATUS_CANCELLED]).count()
+        return obj.orders.exclude(
+            status__in=[Order.STATUS_DELIVERED, Order.STATUS_CANCELLED]
+        ).count()
+
+    def get_has_password(self, obj):
+        return bool(obj.password_hash)
 
 
 class CustomerAddressSerializer(serializers.ModelSerializer):
