@@ -2313,3 +2313,171 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
     flex: 1;
   }
 }
+
+/* Admin PRO partner accounting: Saeid, Ahmed and shared BBVA */
+.partner-accounting-page {
+  display: grid;
+  gap: 18px;
+}
+
+.accounting-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.accounting-summary-grid article {
+  min-height: 128px;
+  border: 1px solid #e4ddd7;
+  border-radius: 17px;
+  background: #fff;
+  padding: 16px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.045);
+}
+
+.accounting-summary-grid span,
+.accounting-summary-grid b,
+.accounting-summary-grid small {
+  display: block;
+}
+
+.accounting-summary-grid span {
+  color: #6e655f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.accounting-summary-grid b {
+  margin: 9px 0 6px;
+  color: #8f1d18;
+  font-size: 21px;
+  line-height: 1.25;
+}
+
+.accounting-summary-grid small {
+  color: #81766e;
+  line-height: 1.4;
+}
+
+.accounting-summary-grid .bbva-balance-card {
+  border-color: #a9d0ee;
+  background: #f5fbff;
+}
+
+.accounting-summary-grid .settlement-card {
+  grid-column: span 2;
+  border-color: #ead5a7;
+  background: #fffaf0;
+}
+
+.accounting-main-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.2fr) minmax(280px, .8fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.accounting-card-heading,
+.accounting-ledger-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.accounting-entry-form,
+.accounting-settings-form {
+  display: grid;
+  gap: 8px;
+}
+
+.accounting-entry-form label,
+.accounting-settings-form label {
+  margin-top: 6px;
+  color: #514740;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.accounting-entry-form input,
+.accounting-entry-form select,
+.accounting-entry-form textarea,
+.accounting-settings-form input,
+.accounting-filters input,
+.accounting-filters select {
+  width: 100%;
+  border: 1px solid #d9cfc7;
+  border-radius: 11px;
+  background: #fff;
+  padding: 11px 12px;
+  font: inherit;
+}
+
+.accounting-entry-form textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.accounting-settings-form {
+  margin-bottom: 24px;
+}
+
+.accounting-category-summary p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #eee6df;
+  margin: 0;
+  padding: 9px 0;
+}
+
+.accounting-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 210px 190px;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.accounting-table td a {
+  color: #8f1d18;
+  font-weight: 800;
+}
+
+.accounting-table .danger-button.compact {
+  margin-left: 6px;
+  padding: 7px 9px;
+}
+
+@media (max-width: 1250px) {
+  .accounting-summary-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .accounting-summary-grid .settlement-card {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 850px) {
+  .accounting-main-grid,
+  .accounting-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .accounting-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .accounting-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .accounting-card-heading,
+  .accounting-ledger-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+

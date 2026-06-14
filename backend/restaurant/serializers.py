@@ -4,7 +4,7 @@ from django.conf import settings
 import requests
 from django.utils import timezone
 from rest_framework import serializers
-from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, OrderChatMessage, OrderReview
+from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry
 
 
 SALAMANCA_LAT_MIN = 40.80
@@ -436,3 +436,119 @@ class OrderReviewSerializer(serializers.ModelSerializer):
         model = OrderReview
         fields = ['id', 'order_code', 'customer_name', 'rating', 'comment', 'status', 'created_at', 'approved_at']
         read_only_fields = ['id', 'order_code', 'status', 'created_at', 'approved_at']
+
+class ExpenseCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExpenseCategory
+        fields = ['id', 'name', 'is_active', 'sort_order', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class AccountingSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AccountingSettings
+        fields = [
+            'id', 'saeid_share_percent', 'ahmed_share_percent',
+            'bbva_initial_balance', 'updated_at'
+        ]
+        read_only_fields = ['id', 'updated_at']
+
+    def validate(self, attrs):
+        saeid = Decimal(str(attrs.get(
+            'saeid_share_percent',
+            getattr(self.instance, 'saeid_share_percent', Decimal('50.00'))
+        )))
+        ahmed = Decimal(str(attrs.get(
+            'ahmed_share_percent',
+            getattr(self.instance, 'ahmed_share_percent', Decimal('50.00'))
+        )))
+        if (saeid + ahmed).quantize(Decimal('0.01')) != Decimal('100.00'):
+            raise serializers.ValidationError(
+                'La suma de los porcentajes de Saeid y Ahmed debe ser 100.'
+            )
+        return attrs
+
+
+class RestaurantFinancialEntrySerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    receipt_url = serializers.SerializerMethodField()
+    paid_by_label = serializers.CharField(source='get_paid_by_display', read_only=True)
+    entry_type_label = serializers.CharField(source='get_entry_type_display', read_only=True)
+    payment_method_label = serializers.CharField(source='get_payment_method_display', read_only=True)
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = RestaurantFinancialEntry
+        fields = [
+            'id', 'entry_type', 'entry_type_label', 'title', 'description',
+            'amount', 'entry_date', 'category', 'category_name',
+            'paid_by', 'paid_by_label', 'contribution_from', 'settlement_to',
+            'payment_method', 'payment_method_label', 'invoice_number',
+            'bank_reference', 'receipt', 'receipt_url', 'status', 'status_label',
+            'created_by_username', 'updated_by_username', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'created_by_username', 'updated_by_username',
+            'created_at', 'updated_at', 'receipt_url'
+        ]
+        extra_kwargs = {
+            'receipt': {'write_only': True, 'required': False, 'allow_null': True}
+        }
+
+    def get_receipt_url(self, obj):
+        if not obj.receipt:
+            return ''
+        request = self.context.get('request')
+        url = obj.receipt.url
+        return request.build_absolute_uri(url) if request else url
+
+    def validate(self, attrs):
+        entry_type = attrs.get(
+            'entry_type',
+            getattr(self.instance, 'entry_type', RestaurantFinancialEntry.TYPE_EXPENSE)
+        )
+        paid_by = attrs.get(
+            'paid_by',
+            getattr(self.instance, 'paid_by', RestaurantFinancialEntry.PARTY_SAEID)
+        )
+        contribution_from = attrs.get(
+            'contribution_from',
+            getattr(self.instance, 'contribution_from', '')
+        )
+        settlement_to = attrs.get(
+            'settlement_to',
+            getattr(self.instance, 'settlement_to', '')
+        )
+
+        if entry_type == RestaurantFinancialEntry.TYPE_CONTRIBUTION:
+            if contribution_from not in {
+                RestaurantFinancialEntry.PARTY_SAEID,
+                RestaurantFinancialEntry.PARTY_AHMED,
+            }:
+                raise serializers.ValidationError({
+                    'contribution_from': 'Selecciona Saeid o Ahmed.'
+                })
+            attrs['paid_by'] = RestaurantFinancialEntry.PARTY_BBVA
+
+        if entry_type == RestaurantFinancialEntry.TYPE_SETTLEMENT:
+            if paid_by not in {
+                RestaurantFinancialEntry.PARTY_SAEID,
+                RestaurantFinancialEntry.PARTY_AHMED,
+            }:
+                raise serializers.ValidationError({
+                    'paid_by': 'Selecciona quién paga la liquidación.'
+                })
+            if settlement_to not in {
+                RestaurantFinancialEntry.PARTY_SAEID,
+                RestaurantFinancialEntry.PARTY_AHMED,
+            } or settlement_to == paid_by:
+                raise serializers.ValidationError({
+                    'settlement_to': 'Selecciona el otro socio como destinatario.'
+                })
+
+        if entry_type == RestaurantFinancialEntry.TYPE_EXPENSE:
+            attrs['contribution_from'] = ''
+            attrs['settlement_to'] = ''
+
+        return attrs
+

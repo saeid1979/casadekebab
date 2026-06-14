@@ -2862,10 +2862,40 @@ function DashboardApp() {
   const [riderForm, setRiderForm] = useState(emptyRiderForm);
   const [riderSaving, setRiderSaving] = useState(false);
   const [showRiderPassword, setShowRiderPassword] = useState(false);
+  const emptyAccountingForm = {
+    id: null,
+    entry_type: 'expense',
+    title: '',
+    description: '',
+    amount: '',
+    entry_date: new Date().toISOString().slice(0, 10),
+    category: '',
+    paid_by: 'saeid',
+    contribution_from: 'saeid',
+    settlement_to: 'ahmed',
+    payment_method: 'cash',
+    invoice_number: '',
+    bank_reference: '',
+    status: 'approved',
+    receipt: null,
+  };
+  const [accountingSummary, setAccountingSummary] = useState(null);
+  const [financialEntries, setFinancialEntries] = useState([]);
+  const [expenseCategories, setExpenseCategories] = useState([]);
+  const [accountingForm, setAccountingForm] = useState(emptyAccountingForm);
+  const [accountingSaving, setAccountingSaving] = useState(false);
+  const [accountingSearch, setAccountingSearch] = useState('');
+  const [accountingPartyFilter, setAccountingPartyFilter] = useState('');
+  const [accountingTypeFilter, setAccountingTypeFilter] = useState('');
+  const [accountingSettingsForm, setAccountingSettingsForm] = useState({
+    saeid_share_percent: '50.00',
+    ahmed_share_percent: '50.00',
+    bbva_initial_balance: '0.00',
+  });
 
   async function loadAdminPanel() {
     try {
-      const [summaryRes, ordersRes, ridersRes, customersRes, catRes, itemRes, settingsRes] = await Promise.all([
+      const [summaryRes, ordersRes, ridersRes, customersRes, catRes, itemRes, settingsRes, accountingRes, entriesRes, expenseCategoriesRes] = await Promise.all([
         axios.get(`${API_BASE}/dashboard/summary/`),
         axios.get(`${API_BASE}/orders/live/?limit=80`),
         axios.get(`${API_BASE}/riders/`),
@@ -2873,6 +2903,9 @@ function DashboardApp() {
         axios.get(`${API_BASE}/admin/categories/`),
         axios.get(`${API_BASE}/admin/menu-items/`),
         axios.get(`${API_BASE}/admin/settings/`),
+        axios.get(`${API_BASE}/admin/accounting/summary/`),
+        axios.get(`${API_BASE}/admin/accounting/entries/?limit=500`),
+        axios.get(`${API_BASE}/admin/accounting/categories/`),
       ]);
       setData(summaryRes.data);
       setOrders(ordersRes.data || []);
@@ -2881,6 +2914,16 @@ function DashboardApp() {
       setCategories(catRes.data || []);
       setItems(itemRes.data || []);
       setSettings(settingsRes.data || null);
+      setAccountingSummary(accountingRes.data || null);
+      setFinancialEntries(entriesRes.data || []);
+      setExpenseCategories(expenseCategoriesRes.data || []);
+      if (accountingRes.data?.settings) {
+        setAccountingSettingsForm({
+          saeid_share_percent: String(accountingRes.data.settings.saeid_share_percent || '50.00'),
+          ahmed_share_percent: String(accountingRes.data.settings.ahmed_share_percent || '50.00'),
+          bbva_initial_balance: String(accountingRes.data.settings.bbva_initial_balance || '0.00'),
+        });
+      }
       setMessage('');
     } catch (err) {
       setMessage('No se pudo cargar el panel admin. Revisa backend y permisos.');
@@ -3008,6 +3051,146 @@ function DashboardApp() {
     }
   }
 
+  function resetAccountingForm() {
+    setAccountingForm({
+      ...emptyAccountingForm,
+      entry_date: new Date().toISOString().slice(0, 10),
+    });
+  }
+
+  function editFinancialEntry(entry) {
+    setAccountingForm({
+      id: entry.id,
+      entry_type: entry.entry_type || 'expense',
+      title: entry.title || '',
+      description: entry.description || '',
+      amount: entry.amount || '',
+      entry_date: entry.entry_date || new Date().toISOString().slice(0, 10),
+      category: entry.category || '',
+      paid_by: entry.paid_by || 'saeid',
+      contribution_from: entry.contribution_from || 'saeid',
+      settlement_to: entry.settlement_to || 'ahmed',
+      payment_method: entry.payment_method || 'cash',
+      invoice_number: entry.invoice_number || '',
+      bank_reference: entry.bank_reference || '',
+      status: entry.status || 'approved',
+      receipt: null,
+    });
+    window.setTimeout(() => {
+      document.getElementById('accounting-entry-form')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 50);
+  }
+
+  async function saveFinancialEntry(e) {
+    e?.preventDefault();
+    if (!accountingForm.title.trim() || !accountingForm.amount) {
+      setMessage('Título y cantidad son obligatorios.');
+      return;
+    }
+
+    const formData = new FormData();
+    Object.entries(accountingForm).forEach(([key, value]) => {
+      if (key === 'id' || key === 'receipt') return;
+      if (value !== null && value !== undefined) formData.append(key, value);
+    });
+    if (accountingForm.receipt) formData.append('receipt', accountingForm.receipt);
+
+    try {
+      setAccountingSaving(true);
+      if (accountingForm.id) {
+        await axios.patch(
+          `${API_BASE}/admin/accounting/entries/${accountingForm.id}/`,
+          formData,
+          { headers: { 'Content-Type': 'multipart/form-data' } }
+        );
+        setMessage('Movimiento financiero actualizado.');
+      } else {
+        await axios.post(
+          `${API_BASE}/admin/accounting/entries/`,
+          formData,
+          { headers: { 'Content-Type': 'multipart/form-data' } }
+        );
+        setMessage('Movimiento financiero registrado.');
+      }
+      resetAccountingForm();
+      await loadAdminPanel();
+    } catch (err) {
+      const payload = err?.response?.data;
+      setMessage(
+        payload?.detail
+        || (payload && typeof payload === 'object' ? Object.values(payload).flat().join(' ') : '')
+        || 'No se pudo guardar el movimiento.'
+      );
+    } finally {
+      setAccountingSaving(false);
+    }
+  }
+
+  async function deleteFinancialEntry(entry) {
+    if (!window.confirm(`¿Eliminar "${entry.title}"?`)) return;
+    try {
+      await axios.delete(`${API_BASE}/admin/accounting/entries/${entry.id}/`);
+      setMessage('Movimiento eliminado.');
+      if (accountingForm.id === entry.id) resetAccountingForm();
+      await loadAdminPanel();
+    } catch (err) {
+      setMessage('No se pudo eliminar el movimiento.');
+    }
+  }
+
+  async function saveAccountingSettings(e) {
+    e?.preventDefault();
+    try {
+      setAccountingSaving(true);
+      await axios.patch(
+        `${API_BASE}/admin/accounting/settings/`,
+        accountingSettingsForm
+      );
+      setMessage('Configuración contable guardada.');
+      await loadAdminPanel();
+    } catch (err) {
+      const payload = err?.response?.data;
+      setMessage(
+        payload?.non_field_errors?.[0]
+        || payload?.detail
+        || 'No se pudo guardar la configuración.'
+      );
+    } finally {
+      setAccountingSaving(false);
+    }
+  }
+
+  function exportAccountingCsv() {
+    const rows = [
+      ['Fecha','Tipo','Título','Categoría','Pagado por','Importe','Método','Factura','Referencia','Estado'],
+      ...filteredFinancialEntries.map(entry => [
+        entry.entry_date,
+        entry.entry_type_label,
+        entry.title,
+        entry.category_name || '',
+        entry.paid_by_label,
+        entry.amount,
+        entry.payment_method_label,
+        entry.invoice_number || '',
+        entry.bank_reference || '',
+        entry.status_label,
+      ]),
+    ];
+    const csv = rows.map(row =>
+      row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(';')
+    ).join('\n');
+    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `contabilidad-casa-kebab-${new Date().toISOString().slice(0,10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function autoAssignRider(orderCode) {
     try {
       await axios.post(`${API_BASE}/orders/${orderCode}/auto-assign-rider/`);
@@ -3029,6 +3212,18 @@ function DashboardApp() {
   }
 
   const activeOrders = orders.filter(o => !['delivered','cancelled'].includes(o.status));
+  const filteredFinancialEntries = financialEntries.filter(entry => {
+    const matchesSearch = !accountingSearch.trim() || [
+      entry.title,
+      entry.description,
+      entry.invoice_number,
+      entry.bank_reference,
+      entry.category_name,
+    ].join(' ').toLowerCase().includes(accountingSearch.trim().toLowerCase());
+    const matchesParty = !accountingPartyFilter || entry.paid_by === accountingPartyFilter;
+    const matchesType = !accountingTypeFilter || entry.entry_type === accountingTypeFilter;
+    return matchesSearch && matchesParty && matchesType;
+  });
   const cardRows = (data?.payment_breakdown || []).filter(p => ['card_delivery', 'online'].includes(p.payment_method));
   const tabs = [
     ['overview','Resumen'],
@@ -3213,7 +3408,177 @@ function DashboardApp() {
 
       {tab === 'customers' && <section className="admin-card"><h2>Clientes</h2><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Cliente</th><th>Teléfono</th><th>Dirección</th><th>Pedidos</th><th>Total gastado</th><th>Último pedido</th></tr></thead><tbody>{customers.map(c => <tr key={c.id}><td><b>{c.name || 'Sin nombre'}</b><small>{c.email}</small></td><td>{c.phone}</td><td>{c.default_address || '-'}</td><td>{c.total_orders}</td><td>{money(c.total_spent)}</td><td>{c.last_order_at ? new Date(c.last_order_at).toLocaleString() : '-'}</td></tr>)}</tbody></table></div></section>}
 
-      {tab === 'accounting' && data && <section className="admin-grid-2"><div className="admin-card accounting-card"><h2>Contabilidad</h2><p><b>Ventas totales</b><span>{money(data.total_sales)}</span></p><p><b>Cobrado</b><span>{money(data.paid_total)}</span></p><p><b>Pendiente de pago</b><span>{money(data.pending_payment_total)}</span></p><p><b>Coste envío cobrado</b><span>{money(data.delivery_fee_total)}</span></p><p><b>Descuentos aplicados</b><span>{money(data.discount_total)}</span></p></div><div className="admin-card"><h2>Por tipo de pedido</h2>{(data.delivery_breakdown || []).map((d,i) => <p key={i}><b>{d.delivery_type}</b><span>{d.count} pedidos · {money(d.total)}</span></p>)}</div></section>}
+
+      {tab === 'accounting' && <section className="partner-accounting-page">
+        <section className="accounting-summary-grid">
+          <article><span>Gastos este mes</span><b>{money(accountingSummary?.month_expenses)}</b><small>Total histórico: {money(accountingSummary?.total_expenses)}</small></article>
+          <article><span>Pagado por Saeid</span><b>{money(accountingSummary?.saeid_expenses)}</b><small>Aportado a BBVA: {money(accountingSummary?.saeid_contributions)}</small></article>
+          <article><span>Pagado por Ahmed</span><b>{money(accountingSummary?.ahmed_expenses)}</b><small>Aportado a BBVA: {money(accountingSummary?.ahmed_contributions)}</small></article>
+          <article><span>Pagado desde BBVA</span><b>{money(accountingSummary?.bbva_expenses)}</b><small>Gastos comunes</small></article>
+          <article className="bbva-balance-card"><span>Saldo calculado BBVA</span><b>{money(accountingSummary?.bbva_balance)}</b><small>Saldo inicial + aportaciones - gastos BBVA</small></article>
+          <article className="settlement-card"><span>Liquidación 50/50</span><b>{Number(accountingSummary?.settlement?.amount || 0) > 0 ? `${accountingSummary.settlement.debtor} debe ${money(accountingSummary.settlement.amount)} a ${accountingSummary.settlement.creditor}` : 'Socios equilibrados'}</b><small>Considera gastos personales y liquidaciones registradas</small></article>
+        </section>
+
+        <section className="accounting-main-grid">
+          <article className="admin-card" id="accounting-entry-form">
+            <div className="accounting-card-heading">
+              <div>
+                <span className="admin-kicker">{accountingForm.id ? 'Editar' : 'Nuevo movimiento'}</span>
+                <h2>{accountingForm.id ? 'Editar movimiento' : 'Registrar movimiento'}</h2>
+              </div>
+              {accountingForm.id && <button className="mini-action" type="button" onClick={resetAccountingForm}>Nuevo</button>}
+            </div>
+
+            <form className="accounting-entry-form" onSubmit={saveFinancialEntry}>
+              <label>Tipo de movimiento *</label>
+              <select value={accountingForm.entry_type} onChange={e => setAccountingForm({...accountingForm, entry_type: e.target.value})}>
+                <option value="expense">Gasto del restaurante</option>
+                <option value="contribution">Aportación al BBVA</option>
+                <option value="settlement">Liquidación entre socios</option>
+              </select>
+
+              <label>Fecha *</label>
+              <input type="date" value={accountingForm.entry_date} onChange={e => setAccountingForm({...accountingForm, entry_date: e.target.value})}/>
+
+              <label>Título *</label>
+              <input placeholder="Ejemplo: Compra de carne" value={accountingForm.title} onChange={e => setAccountingForm({...accountingForm, title: e.target.value})}/>
+
+              <label>Importe (€) *</label>
+              <input type="number" min="0.01" step="0.01" placeholder="0.00" value={accountingForm.amount} onChange={e => setAccountingForm({...accountingForm, amount: e.target.value})}/>
+
+              {accountingForm.entry_type === 'expense' && <>
+                <label>Categoría</label>
+                <select value={accountingForm.category} onChange={e => setAccountingForm({...accountingForm, category: e.target.value})}>
+                  <option value="">Sin categoría</option>
+                  {expenseCategories.filter(category => category.is_active).map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+                </select>
+
+                <label>Pagado por *</label>
+                <select value={accountingForm.paid_by} onChange={e => setAccountingForm({...accountingForm, paid_by: e.target.value})}>
+                  <option value="saeid">Saeid</option>
+                  <option value="ahmed">Ahmed</option>
+                  <option value="bbva">Cuenta conjunta BBVA</option>
+                </select>
+              </>}
+
+              {accountingForm.entry_type === 'contribution' && <>
+                <label>Socio que aporta *</label>
+                <select value={accountingForm.contribution_from} onChange={e => setAccountingForm({...accountingForm, contribution_from: e.target.value})}>
+                  <option value="saeid">Saeid</option>
+                  <option value="ahmed">Ahmed</option>
+                </select>
+              </>}
+
+              {accountingForm.entry_type === 'settlement' && <>
+                <label>Socio que paga *</label>
+                <select value={accountingForm.paid_by} onChange={e => setAccountingForm({...accountingForm, paid_by: e.target.value, settlement_to: e.target.value === 'saeid' ? 'ahmed' : 'saeid'})}>
+                  <option value="saeid">Saeid</option>
+                  <option value="ahmed">Ahmed</option>
+                </select>
+                <label>Socio que recibe *</label>
+                <select value={accountingForm.settlement_to} onChange={e => setAccountingForm({...accountingForm, settlement_to: e.target.value})}>
+                  <option value="saeid">Saeid</option>
+                  <option value="ahmed">Ahmed</option>
+                </select>
+              </>}
+
+              <label>Método de pago</label>
+              <select value={accountingForm.payment_method} onChange={e => setAccountingForm({...accountingForm, payment_method: e.target.value})}>
+                <option value="cash">Efectivo</option>
+                <option value="personal_card">Tarjeta personal</option>
+                <option value="transfer">Transferencia</option>
+                <option value="bbva">Cuenta BBVA conjunta</option>
+                <option value="bizum">Bizum</option>
+                <option value="other">Otro</option>
+              </select>
+
+              <label>Número de factura</label>
+              <input value={accountingForm.invoice_number} onChange={e => setAccountingForm({...accountingForm, invoice_number: e.target.value})}/>
+
+              <label>Referencia bancaria BBVA</label>
+              <input value={accountingForm.bank_reference} onChange={e => setAccountingForm({...accountingForm, bank_reference: e.target.value})}/>
+
+              <label>Descripción</label>
+              <textarea value={accountingForm.description} onChange={e => setAccountingForm({...accountingForm, description: e.target.value})}/>
+
+              <label>Factura o recibo</label>
+              <input type="file" accept=".jpg,.jpeg,.png,.pdf" onChange={e => setAccountingForm({...accountingForm, receipt: e.target.files?.[0] || null})}/>
+
+              <label>Estado</label>
+              <select value={accountingForm.status} onChange={e => setAccountingForm({...accountingForm, status: e.target.value})}>
+                <option value="approved">Aprobado</option>
+                <option value="pending">Pendiente</option>
+                <option value="rejected">Rechazado</option>
+                <option value="reimbursed">Reembolsado</option>
+              </select>
+
+              <button className="pay" disabled={accountingSaving}>
+                {accountingSaving ? 'Guardando...' : accountingForm.id ? 'Guardar cambios' : 'Registrar movimiento'}
+              </button>
+            </form>
+          </article>
+
+          <article className="admin-card accounting-settings-card">
+            <h2>Socios y cuenta BBVA</h2>
+            <form className="accounting-settings-form" onSubmit={saveAccountingSettings}>
+              <label>Participación Saeid (%)</label>
+              <input type="number" step="0.01" value={accountingSettingsForm.saeid_share_percent} onChange={e => setAccountingSettingsForm({...accountingSettingsForm, saeid_share_percent: e.target.value})}/>
+              <label>Participación Ahmed (%)</label>
+              <input type="number" step="0.01" value={accountingSettingsForm.ahmed_share_percent} onChange={e => setAccountingSettingsForm({...accountingSettingsForm, ahmed_share_percent: e.target.value})}/>
+              <label>Saldo inicial cuenta BBVA (€)</label>
+              <input type="number" step="0.01" value={accountingSettingsForm.bbva_initial_balance} onChange={e => setAccountingSettingsForm({...accountingSettingsForm, bbva_initial_balance: e.target.value})}/>
+              <button className="mini-action" disabled={accountingSaving}>Guardar configuración</button>
+            </form>
+
+            <h2>Gastos por categoría</h2>
+            <div className="accounting-category-summary">
+              {(accountingSummary?.by_category || []).map(row => <p key={row.name}><b>{row.name}</b><span>{row.count} · {money(row.total)}</span></p>)}
+              {!(accountingSummary?.by_category || []).length && <p className="muted">Todavía no hay gastos.</p>}
+            </div>
+          </article>
+        </section>
+
+        <section className="admin-card accounting-ledger-card">
+          <div className="accounting-ledger-heading">
+            <div><h2>Libro de movimientos</h2><p className="muted">{filteredFinancialEntries.length} movimientos visibles</p></div>
+            <button className="mini-action" onClick={exportAccountingCsv}>Exportar CSV</button>
+          </div>
+          <div className="accounting-filters">
+            <input placeholder="Buscar título, factura o referencia..." value={accountingSearch} onChange={e => setAccountingSearch(e.target.value)}/>
+            <select value={accountingTypeFilter} onChange={e => setAccountingTypeFilter(e.target.value)}>
+              <option value="">Todos los tipos</option>
+              <option value="expense">Gastos</option>
+              <option value="contribution">Aportaciones BBVA</option>
+              <option value="settlement">Liquidaciones</option>
+            </select>
+            <select value={accountingPartyFilter} onChange={e => setAccountingPartyFilter(e.target.value)}>
+              <option value="">Todos los pagadores</option>
+              <option value="saeid">Saeid</option>
+              <option value="ahmed">Ahmed</option>
+              <option value="bbva">BBVA</option>
+            </select>
+          </div>
+          <div className="admin-table-wrap">
+            <table className="admin-table accounting-table">
+              <thead><tr><th>Fecha</th><th>Movimiento</th><th>Pagador</th><th>Categoría</th><th>Importe</th><th>Documento</th><th>Estado</th><th>Acciones</th></tr></thead>
+              <tbody>
+                {filteredFinancialEntries.map(entry => <tr key={entry.id}>
+                  <td>{entry.entry_date}<small>{entry.created_by_username ? `por ${entry.created_by_username}` : ''}</small></td>
+                  <td><b>{entry.title}</b><small>{entry.entry_type_label} · {entry.payment_method_label}</small></td>
+                  <td>{entry.entry_type === 'contribution' ? `Aportación: ${entry.contribution_from === 'saeid' ? 'Saeid' : 'Ahmed'}` : entry.entry_type === 'settlement' ? `${entry.paid_by_label} → ${entry.settlement_to === 'saeid' ? 'Saeid' : 'Ahmed'}` : entry.paid_by_label}</td>
+                  <td>{entry.category_name || '-'}</td>
+                  <td><b>{money(entry.amount)}</b><small>{entry.invoice_number || entry.bank_reference || ''}</small></td>
+                  <td>{entry.receipt_url ? <a href={entry.receipt_url} target="_blank" rel="noreferrer">Ver recibo</a> : <span className="muted">Sin recibo</span>}</td>
+                  <td>{entry.status_label}</td>
+                  <td><button onClick={() => editFinancialEntry(entry)}>Editar</button><button className="danger-button compact" onClick={() => deleteFinancialEntry(entry)}>Eliminar</button></td>
+                </tr>)}
+                {!filteredFinancialEntries.length && <tr><td colSpan="8" className="muted">No hay movimientos con estos filtros.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>}
+
 
       {tab === 'config' && <section className="admin-grid-2"><div className="admin-card"><h2>Configuración actual</h2>{settings && <><p><b>Restaurante</b><span>{settings.restaurant_name}</span></p><p><b>Teléfono</b><span>{settings.phone}</span></p><p><b>Dirección</b><span>{settings.address}</span></p><p><b>Horario</b><span>{settings.opening_hours}</span></p><p><b>Estado</b><span>{settings.is_open ? 'Abierto' : 'Cerrado'}</span></p></>}</div><div className="admin-card"><h2>Accesos rápidos</h2><button className="pay" onClick={() => window.location.href='/settings-admin'}>Abrir configuración completa</button><button className="mini-action" onClick={() => window.location.href='/menu-admin'}>Editar menú</button><button className="mini-action" onClick={() => window.location.href='/orders-live'}>Pedidos clásicos</button></div></section>}
 

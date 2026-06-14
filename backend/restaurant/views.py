@@ -6,13 +6,13 @@ from django.contrib.auth import authenticate, get_user_model
 from django.core import signing
 from functools import wraps
 from django.utils import timezone
-from django.db.models import Sum, Count, F
+from django.db.models import Sum, Count, F, Q
 from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage, OrderChatMessage, OrderReview
-from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer, OrderChatMessageSerializer, OrderReviewSerializer
+from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry
+from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer, OrderChatMessageSerializer, OrderReviewSerializer, ExpenseCategorySerializer, AccountingSettingsSerializer, RestaurantFinancialEntrySerializer
 from .notifications import send_telegram_message, build_order_message, send_customer_order_sms, queue_sms
 
 
@@ -1514,3 +1514,246 @@ def sms_gateway_mark(request):
         row.sent_at = timezone.now()
     row.save(update_fields=['status', 'error', 'device_id', 'sent_at', 'updated_at'])
     return Response({'success': True, 'id': row.id, 'status': row.status})
+
+# =========================
+# Partner accounting API
+# =========================
+
+def _money_sum(queryset, field='amount'):
+    return queryset.aggregate(value=Sum(field)).get('value') or Decimal('0.00')
+
+
+def _accounting_summary_payload():
+    settings_obj = AccountingSettings.current()
+    approved = RestaurantFinancialEntry.objects.filter(
+        status__in=[
+            RestaurantFinancialEntry.STATUS_APPROVED,
+            RestaurantFinancialEntry.STATUS_REIMBURSED,
+        ]
+    )
+    expenses = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+    contributions = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_CONTRIBUTION)
+    settlements = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_SETTLEMENT)
+
+    saeid_expenses = _money_sum(expenses.filter(paid_by=RestaurantFinancialEntry.PARTY_SAEID))
+    ahmed_expenses = _money_sum(expenses.filter(paid_by=RestaurantFinancialEntry.PARTY_AHMED))
+    bbva_expenses = _money_sum(expenses.filter(paid_by=RestaurantFinancialEntry.PARTY_BBVA))
+
+    saeid_contributions = _money_sum(
+        contributions.filter(contribution_from=RestaurantFinancialEntry.PARTY_SAEID)
+    )
+    ahmed_contributions = _money_sum(
+        contributions.filter(contribution_from=RestaurantFinancialEntry.PARTY_AHMED)
+    )
+
+    settlements_saeid_to_ahmed = _money_sum(
+        settlements.filter(
+            paid_by=RestaurantFinancialEntry.PARTY_SAEID,
+            settlement_to=RestaurantFinancialEntry.PARTY_AHMED,
+        )
+    )
+    settlements_ahmed_to_saeid = _money_sum(
+        settlements.filter(
+            paid_by=RestaurantFinancialEntry.PARTY_AHMED,
+            settlement_to=RestaurantFinancialEntry.PARTY_SAEID,
+        )
+    )
+
+    personal_total = saeid_expenses + ahmed_expenses
+    saeid_target = (
+        personal_total * settings_obj.saeid_share_percent / Decimal('100.00')
+    )
+    ahmed_target = (
+        personal_total * settings_obj.ahmed_share_percent / Decimal('100.00')
+    )
+
+    # Positive means Saeid should receive money; negative means Ahmed should receive.
+    raw_saeid_credit = saeid_expenses - saeid_target
+    settlement_net_to_saeid = settlements_ahmed_to_saeid - settlements_saeid_to_ahmed
+    saeid_credit_after_settlement = raw_saeid_credit - settlement_net_to_saeid
+
+    if saeid_credit_after_settlement > 0:
+        settlement = {
+            'debtor': 'Ahmed',
+            'creditor': 'Saeid',
+            'amount': str(saeid_credit_after_settlement.quantize(Decimal('0.01'))),
+        }
+    elif saeid_credit_after_settlement < 0:
+        settlement = {
+            'debtor': 'Saeid',
+            'creditor': 'Ahmed',
+            'amount': str(abs(saeid_credit_after_settlement).quantize(Decimal('0.01'))),
+        }
+    else:
+        settlement = {'debtor': '', 'creditor': '', 'amount': '0.00'}
+
+    bbva_balance = (
+        settings_obj.bbva_initial_balance
+        + saeid_contributions
+        + ahmed_contributions
+        - bbva_expenses
+    )
+
+    month_start = timezone.localdate().replace(day=1)
+    month_expenses = _money_sum(expenses.filter(entry_date__gte=month_start))
+
+    by_category = list(
+        expenses.values('category__name')
+        .annotate(total=Sum('amount'), count=Count('id'))
+        .order_by('-total')
+    )
+    for row in by_category:
+        row['name'] = row.pop('category__name') or 'Sin categoría'
+        row['total'] = str(row['total'] or Decimal('0.00'))
+
+    return {
+        'settings': AccountingSettingsSerializer(settings_obj).data,
+        'total_expenses': str(_money_sum(expenses)),
+        'month_expenses': str(month_expenses),
+        'saeid_expenses': str(saeid_expenses),
+        'ahmed_expenses': str(ahmed_expenses),
+        'bbva_expenses': str(bbva_expenses),
+        'saeid_contributions': str(saeid_contributions),
+        'ahmed_contributions': str(ahmed_contributions),
+        'bbva_balance': str(bbva_balance),
+        'personal_expenses_total': str(personal_total),
+        'saeid_target_share': str(saeid_target.quantize(Decimal('0.01'))),
+        'ahmed_target_share': str(ahmed_target.quantize(Decimal('0.01'))),
+        'settlement': settlement,
+        'by_category': by_category,
+    }
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_accounting_summary(request):
+    return Response(_accounting_summary_payload())
+
+
+@api_view(['GET', 'PATCH'])
+@admin_token_required
+def admin_accounting_settings(request):
+    settings_obj = AccountingSettings.current()
+    if request.method == 'GET':
+        return Response(AccountingSettingsSerializer(settings_obj).data)
+
+    serializer = AccountingSettingsSerializer(
+        settings_obj,
+        data=request.data,
+        partial=True,
+    )
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+    return Response(serializer.data)
+
+
+@api_view(['GET', 'POST'])
+@admin_token_required
+def admin_expense_categories(request):
+    if request.method == 'GET':
+        qs = ExpenseCategory.objects.all().order_by('sort_order', 'name')
+        return Response(ExpenseCategorySerializer(qs, many=True).data)
+
+    serializer = ExpenseCategorySerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    category = serializer.save()
+    return Response(
+        ExpenseCategorySerializer(category).data,
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(['GET', 'POST'])
+@admin_token_required
+def admin_financial_entries(request):
+    if request.method == 'GET':
+        qs = RestaurantFinancialEntry.objects.select_related('category').all()
+
+        entry_type = (request.query_params.get('entry_type') or '').strip()
+        paid_by = (request.query_params.get('paid_by') or '').strip()
+        date_from = (request.query_params.get('date_from') or '').strip()
+        date_to = (request.query_params.get('date_to') or '').strip()
+        search = (request.query_params.get('search') or '').strip()
+
+        if entry_type:
+            qs = qs.filter(entry_type=entry_type)
+        if paid_by:
+            qs = qs.filter(paid_by=paid_by)
+        if date_from:
+            qs = qs.filter(entry_date__gte=date_from)
+        if date_to:
+            qs = qs.filter(entry_date__lte=date_to)
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search)
+                | Q(description__icontains=search)
+                | Q(invoice_number__icontains=search)
+                | Q(bank_reference__icontains=search)
+            )
+
+        limit = min(int(request.query_params.get('limit', 500)), 1000)
+        serializer = RestaurantFinancialEntrySerializer(
+            qs[:limit],
+            many=True,
+            context={'request': request},
+        )
+        return Response(serializer.data)
+
+    serializer = RestaurantFinancialEntrySerializer(
+        data=request.data,
+        context={'request': request},
+    )
+    serializer.is_valid(raise_exception=True)
+    entry = serializer.save(
+        created_by_username=request.admin_user.get_username(),
+        updated_by_username=request.admin_user.get_username(),
+    )
+    return Response(
+        RestaurantFinancialEntrySerializer(
+            entry,
+            context={'request': request},
+        ).data,
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(['GET', 'PATCH', 'DELETE'])
+@admin_token_required
+def admin_financial_entry_detail(request, entry_id):
+    try:
+        entry = RestaurantFinancialEntry.objects.select_related('category').get(id=entry_id)
+    except RestaurantFinancialEntry.DoesNotExist:
+        return Response(
+            {'detail': 'Movimiento financiero no encontrado.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if request.method == 'GET':
+        return Response(
+            RestaurantFinancialEntrySerializer(
+                entry,
+                context={'request': request},
+            ).data
+        )
+
+    if request.method == 'DELETE':
+        entry.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    serializer = RestaurantFinancialEntrySerializer(
+        entry,
+        data=request.data,
+        partial=True,
+        context={'request': request},
+    )
+    serializer.is_valid(raise_exception=True)
+    entry = serializer.save(
+        updated_by_username=request.admin_user.get_username(),
+    )
+    return Response(
+        RestaurantFinancialEntrySerializer(
+            entry,
+            context={'request': request},
+        ).data
+    )
+

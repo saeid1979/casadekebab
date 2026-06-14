@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview
+from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry
 
 class MenuOptionInline(admin.TabularInline):
     model = MenuOption
@@ -147,3 +147,36 @@ class OrderReviewAdmin(admin.ModelAdmin):
     list_filter = ('status', 'rating', 'created_at')
     search_fields = ('order__order_code', 'customer_name', 'customer_phone', 'comment')
     readonly_fields = ('created_at', 'approved_at')
+
+@admin.register(ExpenseCategory)
+class ExpenseCategoryAdmin(admin.ModelAdmin):
+    list_display = ('name', 'sort_order', 'is_active', 'created_at')
+    list_editable = ('sort_order', 'is_active')
+    search_fields = ('name',)
+
+
+@admin.register(AccountingSettings)
+class AccountingSettingsAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'saeid_share_percent', 'ahmed_share_percent',
+        'bbva_initial_balance', 'updated_at'
+    )
+
+
+@admin.register(RestaurantFinancialEntry)
+class RestaurantFinancialEntryAdmin(admin.ModelAdmin):
+    list_display = (
+        'entry_date', 'entry_type', 'title', 'amount', 'paid_by',
+        'category', 'payment_method', 'status', 'created_by_username'
+    )
+    list_filter = (
+        'entry_type', 'paid_by', 'payment_method', 'status',
+        'category', 'entry_date'
+    )
+    search_fields = (
+        'title', 'description', 'invoice_number',
+        'bank_reference', 'created_by_username'
+    )
+    readonly_fields = ('created_at', 'updated_at')
+    date_hierarchy = 'entry_date'
+

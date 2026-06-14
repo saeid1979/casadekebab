@@ -51,6 +51,11 @@ from .views import (
     order_chat,
     create_order_review,
     public_reviews,
+    admin_accounting_summary,
+    admin_accounting_settings,
+    admin_expense_categories,
+    admin_financial_entries,
+    admin_financial_entry_detail,
 )
 
 router = DefaultRouter()
@@ -75,6 +80,13 @@ urlpatterns = [
     path('orders/<str:order_code>/chat/', order_chat, name='order-chat'),
     path('reviews/', create_order_review, name='create-order-review'),
     path('reviews/public/', public_reviews, name='public-reviews'),
+
+    # Admin partner accounting
+    path('admin/accounting/summary/', admin_accounting_summary, name='admin-accounting-summary'),
+    path('admin/accounting/settings/', admin_accounting_settings, name='admin-accounting-settings'),
+    path('admin/accounting/categories/', admin_expense_categories, name='admin-expense-categories'),
+    path('admin/accounting/entries/', admin_financial_entries, name='admin-financial-entries'),
+    path('admin/accounting/entries/<int:entry_id>/', admin_financial_entry_detail, name='admin-financial-entry-detail'),
 
     path('sms-gateway/pending/', sms_gateway_pending, name='sms-gateway-pending'),
     path('sms-gateway/mark/', sms_gateway_mark, name='sms-gateway-mark'),

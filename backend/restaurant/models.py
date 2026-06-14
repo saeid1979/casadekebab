@@ -437,3 +437,135 @@ class OrderReview(models.Model):
 
     def __str__(self):
         return f'{self.order.order_code} - {self.rating}/5 - {self.status}'
+
+class ExpenseCategory(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['sort_order', 'name']
+        verbose_name_plural = 'Expense categories'
+
+    def __str__(self):
+        return self.name
+
+
+class AccountingSettings(models.Model):
+    saeid_share_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('50.00'),
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
+    ahmed_share_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('50.00'),
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
+    bbva_initial_balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Accounting settings'
+        verbose_name_plural = 'Accounting settings'
+
+    def __str__(self):
+        return 'Casa de Kebab accounting settings'
+
+    @classmethod
+    def current(cls):
+        obj, _ = cls.objects.get_or_create(id=1)
+        return obj
+
+
+class RestaurantFinancialEntry(models.Model):
+    TYPE_EXPENSE = 'expense'
+    TYPE_CONTRIBUTION = 'contribution'
+    TYPE_SETTLEMENT = 'settlement'
+    TYPE_CHOICES = [
+        (TYPE_EXPENSE, 'Gasto'),
+        (TYPE_CONTRIBUTION, 'Aportación a BBVA'),
+        (TYPE_SETTLEMENT, 'Liquidación entre socios'),
+    ]
+
+    PARTY_SAEID = 'saeid'
+    PARTY_AHMED = 'ahmed'
+    PARTY_BBVA = 'bbva'
+    PARTY_CHOICES = [
+        (PARTY_SAEID, 'Saeid'),
+        (PARTY_AHMED, 'Ahmed'),
+        (PARTY_BBVA, 'Cuenta conjunta BBVA'),
+    ]
+
+    PAYMENT_CASH = 'cash'
+    PAYMENT_PERSONAL_CARD = 'personal_card'
+    PAYMENT_TRANSFER = 'transfer'
+    PAYMENT_BBVA = 'bbva'
+    PAYMENT_BIZUM = 'bizum'
+    PAYMENT_OTHER = 'other'
+    PAYMENT_CHOICES = [
+        (PAYMENT_CASH, 'Efectivo'),
+        (PAYMENT_PERSONAL_CARD, 'Tarjeta personal'),
+        (PAYMENT_TRANSFER, 'Transferencia'),
+        (PAYMENT_BBVA, 'Cuenta BBVA conjunta'),
+        (PAYMENT_BIZUM, 'Bizum'),
+        (PAYMENT_OTHER, 'Otro'),
+    ]
+
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_REIMBURSED = 'reimbursed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pendiente'),
+        (STATUS_APPROVED, 'Aprobado'),
+        (STATUS_REJECTED, 'Rechazado'),
+        (STATUS_REIMBURSED, 'Reembolsado'),
+    ]
+
+    entry_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_EXPENSE, db_index=True)
+    title = models.CharField(max_length=180)
+    description = models.TextField(blank=True, default='')
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    entry_date = models.DateField(default=timezone.localdate, db_index=True)
+    category = models.ForeignKey(
+        ExpenseCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='entries',
+    )
+    paid_by = models.CharField(max_length=20, choices=PARTY_CHOICES, default=PARTY_SAEID, db_index=True)
+    contribution_from = models.CharField(max_length=20, choices=PARTY_CHOICES, blank=True, default='')
+    settlement_to = models.CharField(max_length=20, choices=PARTY_CHOICES, blank=True, default='')
+    payment_method = models.CharField(max_length=30, choices=PAYMENT_CHOICES, default=PAYMENT_CASH)
+    invoice_number = models.CharField(max_length=100, blank=True, default='')
+    bank_reference = models.CharField(max_length=160, blank=True, default='')
+    receipt = models.FileField(upload_to='accounting_receipts/%Y/%m/', blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_APPROVED, db_index=True)
+    created_by_username = models.CharField(max_length=150, blank=True, default='')
+    updated_by_username = models.CharField(max_length=150, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-entry_date', '-created_at']
+        indexes = [
+            models.Index(fields=['entry_type', 'entry_date']),
+            models.Index(fields=['paid_by', 'entry_date']),
+        ]
+
+    def __str__(self):
+        return f'{self.entry_date} - {self.title} - {self.amount}'
+
