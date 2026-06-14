@@ -1,0 +1,8 @@
+{
+  "appId": "com.casadekebab.rider",
+  "appName": "Casa Kebab Rider",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

@@ -4,7 +4,7 @@ from django.conf import settings
 import requests
 from django.utils import timezone
 from rest_framework import serializers
-from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry
+from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
 
 
 SALAMANCA_LAT_MIN = 40.80
@@ -551,4 +551,25 @@ class RestaurantFinancialEntrySerializer(serializers.ModelSerializer):
             attrs['settlement_to'] = ''
 
         return attrs
+
+class SystemBackupSerializer(serializers.ModelSerializer):
+    backup_type_label = serializers.CharField(source='get_backup_type_display', read_only=True)
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+    download_available = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SystemBackup
+        fields = [
+            'id', 'backup_type', 'backup_type_label', 'status', 'status_label',
+            'file_name', 'file_size', 'checksum_sha256',
+            'created_by_username', 'error_message', 'is_protected',
+            'created_at', 'completed_at', 'download_available'
+        ]
+        read_only_fields = fields
+
+    def get_download_available(self, obj):
+        return bool(
+            obj.status == SystemBackup.STATUS_COMPLETED
+            and obj.file_path
+        )
 

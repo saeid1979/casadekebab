@@ -1,10 +1,17 @@
 from datetime import timedelta
 from decimal import Decimal
 import uuid
+import os
+import json
+import hashlib
+import zipfile
 import requests
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.core import signing
+from django.core.serializers.json import DjangoJSONEncoder
+from django.db import connection
+from django.http import FileResponse
 from functools import wraps
 from django.utils import timezone
 from django.db.models import Sum, Count, F, Q
@@ -12,8 +19,8 @@ from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry
-from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer, OrderChatMessageSerializer, OrderReviewSerializer, ExpenseCategorySerializer, AccountingSettingsSerializer, RestaurantFinancialEntrySerializer
+from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
+from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer, OrderChatMessageSerializer, OrderReviewSerializer, ExpenseCategorySerializer, AccountingSettingsSerializer, RestaurantFinancialEntrySerializer, SystemBackupSerializer
 from .notifications import send_telegram_message, build_order_message, send_customer_order_sms, queue_sms
 
 
@@ -1757,4 +1764,485 @@ def admin_financial_entry_detail(request, entry_id):
             context={'request': request},
         ).data
     )
+
+# =========================
+# System backup and health
+# =========================
+
+BACKUP_DIRECTORY_NAME = 'system_backups'
+
+
+def _backup_root():
+    root = os.path.join(str(settings.MEDIA_ROOT), BACKUP_DIRECTORY_NAME)
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+def _sha256_file(file_path):
+    digest = hashlib.sha256()
+    with open(file_path, 'rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _json_safe_rows(queryset, fields):
+    rows = []
+    for row in queryset.values(*fields):
+        rows.append(row)
+    return rows
+
+
+def _database_backup_payload():
+    """Create a portable, password-free JSON export of business data."""
+    from .models import (
+        MenuOptionGroup, MenuOption, CustomerAddress, OrderItem,
+        ExpenseCategory, AccountingSettings, RestaurantFinancialEntry,
+    )
+
+    return {
+        'metadata': {
+            'project': 'Casa de Kebab Turco',
+            'created_at': timezone.now(),
+            'format_version': 1,
+            'warning': (
+                'This is a safe business-data JSON export. '
+                'Passwords, Django users, API tokens and secrets are excluded.'
+            ),
+        },
+        'categories': _json_safe_rows(
+            Category.objects.all(),
+            ['id', 'name_es', 'name_en', 'slug', 'sort_order', 'is_active'],
+        ),
+        'menu_items': _json_safe_rows(
+            MenuItem.objects.all(),
+            [
+                'id', 'category_id', 'name_es', 'name_en',
+                'description_es', 'description_en', 'price',
+                'image', 'is_active', 'is_available', 'sort_order',
+                'created_at', 'updated_at',
+            ],
+        ),
+        'menu_option_groups': _json_safe_rows(
+            MenuOptionGroup.objects.all(),
+            [
+                'id', 'menu_item_id', 'title_es', 'title_en',
+                'required', 'min_choices', 'max_choices', 'sort_order',
+            ],
+        ),
+        'menu_options': _json_safe_rows(
+            MenuOption.objects.all(),
+            [
+                'id', 'group_id', 'name_es', 'name_en',
+                'extra_price', 'is_active', 'sort_order',
+            ],
+        ),
+        'customers': _json_safe_rows(
+            Customer.objects.all(),
+            [
+                'id', 'name', 'phone', 'email', 'default_address',
+                'total_orders', 'last_order_at', 'last_login_at', 'created_at',
+            ],
+        ),
+        'customer_addresses': _json_safe_rows(
+            CustomerAddress.objects.all(),
+            [
+                'id', 'customer_id', 'address_text', 'city', 'postal_code',
+                'latitude', 'longitude', 'is_default', 'created_at',
+            ],
+        ),
+        'orders': _json_safe_rows(
+            Order.objects.all(),
+            [
+                'id', 'order_code', 'customer_id', 'customer_name',
+                'phone', 'address', 'floor', 'note', 'delivery_type',
+                'payment_method', 'status', 'subtotal', 'delivery_fee',
+                'discount_amount', 'total', 'assigned_rider_id',
+                'delivery_latitude', 'delivery_longitude',
+                'route_distance_km', 'route_duration_min',
+                'created_at', 'updated_at',
+            ],
+        ),
+        'order_items': _json_safe_rows(
+            OrderItem.objects.all(),
+            [
+                'id', 'order_id', 'menu_item_id', 'name', 'quantity',
+                'unit_price', 'options_text', 'total',
+            ],
+        ),
+        'payments': _json_safe_rows(
+            Payment.objects.all(),
+            [
+                'id', 'order_id', 'method', 'status', 'amount',
+                'transaction_id', 'created_at', 'updated_at',
+            ],
+        ),
+        'riders': _json_safe_rows(
+            Rider.objects.all(),
+            [
+                'id', 'name', 'phone', 'username', 'is_active',
+                'current_latitude', 'current_longitude',
+                'last_location_at', 'created_at',
+            ],
+        ),
+        'restaurant_settings': _json_safe_rows(
+            RestaurantSettings.objects.all(),
+            [
+                field.name for field in RestaurantSettings._meta.fields
+                if field.name not in {'id'}
+            ],
+        ),
+        'coupons': _json_safe_rows(
+            Coupon.objects.all(),
+            [field.name for field in Coupon._meta.fields],
+        ),
+        'expense_categories': _json_safe_rows(
+            ExpenseCategory.objects.all(),
+            ['id', 'name', 'is_active', 'sort_order', 'created_at'],
+        ),
+        'accounting_settings': _json_safe_rows(
+            AccountingSettings.objects.all(),
+            [
+                'id', 'saeid_share_percent', 'ahmed_share_percent',
+                'bbva_initial_balance', 'updated_at',
+            ],
+        ),
+        'financial_entries': _json_safe_rows(
+            RestaurantFinancialEntry.objects.all(),
+            [
+                'id', 'entry_type', 'title', 'description', 'amount',
+                'entry_date', 'category_id', 'paid_by', 'contribution_from',
+                'settlement_to', 'payment_method', 'invoice_number',
+                'bank_reference', 'receipt', 'status',
+                'created_by_username', 'updated_by_username',
+                'created_at', 'updated_at',
+            ],
+        ),
+        'reviews': _json_safe_rows(
+            OrderReview.objects.all(),
+            [field.name for field in OrderReview._meta.fields],
+        ),
+        'order_chat_messages': _json_safe_rows(
+            OrderChatMessage.objects.all(),
+            [field.name for field in OrderChatMessage._meta.fields],
+        ),
+    }
+
+
+def _configuration_backup_payload():
+    from .models import ExpenseCategory, AccountingSettings
+
+    return {
+        'metadata': {
+            'project': 'Casa de Kebab Turco',
+            'created_at': timezone.now(),
+            'format_version': 1,
+        },
+        'restaurant_settings': _json_safe_rows(
+            RestaurantSettings.objects.all(),
+            [field.name for field in RestaurantSettings._meta.fields],
+        ),
+        'categories': _json_safe_rows(
+            Category.objects.all(),
+            ['id', 'name_es', 'name_en', 'slug', 'sort_order', 'is_active'],
+        ),
+        'coupons': _json_safe_rows(
+            Coupon.objects.all(),
+            [field.name for field in Coupon._meta.fields],
+        ),
+        'expense_categories': _json_safe_rows(
+            ExpenseCategory.objects.all(),
+            ['id', 'name', 'is_active', 'sort_order'],
+        ),
+        'accounting_settings': _json_safe_rows(
+            AccountingSettings.objects.all(),
+            [
+                'id', 'saeid_share_percent', 'ahmed_share_percent',
+                'bbva_initial_balance',
+            ],
+        ),
+    }
+
+
+def _create_json_backup(backup, payload):
+    timestamp = timezone.localtime().strftime('%Y-%m-%d_%H-%M-%S')
+    file_name = f'casa_kebab_{backup.backup_type}_{timestamp}.json'
+    file_path = os.path.join(_backup_root(), file_name)
+
+    with open(file_path, 'w', encoding='utf-8') as stream:
+        json.dump(payload, stream, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2)
+
+    return file_name, file_path
+
+
+def _create_media_backup(backup):
+    timestamp = timezone.localtime().strftime('%Y-%m-%d_%H-%M-%S')
+    file_name = f'casa_kebab_media_{timestamp}.zip'
+    file_path = os.path.join(_backup_root(), file_name)
+
+    media_root = os.path.abspath(str(settings.MEDIA_ROOT))
+    backup_root = os.path.abspath(_backup_root())
+
+    with zipfile.ZipFile(file_path, 'w', zipfile.ZIP_DEFLATED) as archive:
+        if os.path.isdir(media_root):
+            for root, _, files in os.walk(media_root):
+                root_abs = os.path.abspath(root)
+                if root_abs.startswith(backup_root):
+                    continue
+                for file_name_item in files:
+                    absolute_path = os.path.join(root, file_name_item)
+                    relative_path = os.path.relpath(absolute_path, media_root)
+                    archive.write(absolute_path, relative_path)
+
+    return file_name, file_path
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_system_health(request):
+    health = {
+        'backend': {'status': 'ok', 'label': 'Operativo', 'detail': 'Django API responde correctamente.'},
+        'database': {'status': 'unknown', 'label': 'Comprobando', 'detail': ''},
+        'media': {'status': 'unknown', 'label': 'Comprobando', 'detail': ''},
+        'sms_gateway': {
+            'status': 'ok' if getattr(settings, 'SMS_GATEWAY_TOKEN', '') else 'warning',
+            'label': 'Configurado' if getattr(settings, 'SMS_GATEWAY_TOKEN', '') else 'Sin configurar',
+            'detail': 'Token SMS disponible.' if getattr(settings, 'SMS_GATEWAY_TOKEN', '') else 'No hay token SMS configurado.',
+        },
+        'telegram': {
+            'status': 'ok' if (
+                getattr(settings, 'TELEGRAM_ENABLED', False)
+                and getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
+            ) else 'warning',
+            'label': 'Configurado' if (
+                getattr(settings, 'TELEGRAM_ENABLED', False)
+                and getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
+            ) else 'Desactivado',
+            'detail': 'Telegram está habilitado.' if getattr(settings, 'TELEGRAM_ENABLED', False) else 'Telegram está desactivado.',
+        },
+    }
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+            cursor.fetchone()
+        health['database'] = {
+            'status': 'ok',
+            'label': 'Operativo',
+            'detail': connection.vendor,
+        }
+    except Exception as exc:
+        health['database'] = {
+            'status': 'error',
+            'label': 'No disponible',
+            'detail': str(exc),
+        }
+
+    try:
+        root = _backup_root()
+        test_path = os.path.join(root, '.write_test')
+        with open(test_path, 'w', encoding='utf-8') as stream:
+            stream.write('ok')
+        os.remove(test_path)
+        health['media'] = {
+            'status': 'ok',
+            'label': 'Escritura disponible',
+            'detail': str(settings.MEDIA_ROOT),
+        }
+    except Exception as exc:
+        health['media'] = {
+            'status': 'error',
+            'label': 'No escribible',
+            'detail': str(exc),
+        }
+
+    latest = SystemBackup.objects.filter(
+        status=SystemBackup.STATUS_COMPLETED
+    ).order_by('-completed_at').first()
+
+    return Response({
+        'health': health,
+        'latest_backup': SystemBackupSerializer(latest).data if latest else None,
+        'backup_count': SystemBackup.objects.count(),
+        'completed_count': SystemBackup.objects.filter(
+            status=SystemBackup.STATUS_COMPLETED
+        ).count(),
+        'failed_count': SystemBackup.objects.filter(
+            status=SystemBackup.STATUS_FAILED
+        ).count(),
+        'render_warning': (
+            'Render local filesystem may be ephemeral. '
+            'Download backups immediately or configure Persistent Disk/S3.'
+        ),
+    })
+
+
+@api_view(['GET', 'POST'])
+@admin_token_required
+def admin_system_backups(request):
+    if request.method == 'GET':
+        qs = SystemBackup.objects.all()[:100]
+        return Response(SystemBackupSerializer(qs, many=True).data)
+
+    backup_type = (request.data.get('backup_type') or '').strip()
+    allowed_types = {
+        SystemBackup.TYPE_DATABASE,
+        SystemBackup.TYPE_CONFIGURATION,
+        SystemBackup.TYPE_MEDIA,
+    }
+    if backup_type not in allowed_types:
+        return Response(
+            {'detail': 'Tipo de copia no válido.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    backup = SystemBackup.objects.create(
+        backup_type=backup_type,
+        status=SystemBackup.STATUS_RUNNING,
+        created_by_username=request.admin_user.get_username(),
+    )
+
+    try:
+        if backup_type == SystemBackup.TYPE_DATABASE:
+            file_name, file_path = _create_json_backup(
+                backup,
+                _database_backup_payload(),
+            )
+        elif backup_type == SystemBackup.TYPE_CONFIGURATION:
+            file_name, file_path = _create_json_backup(
+                backup,
+                _configuration_backup_payload(),
+            )
+        else:
+            file_name, file_path = _create_media_backup(backup)
+
+        backup.file_name = file_name
+        backup.file_path = file_path
+        backup.file_size = os.path.getsize(file_path)
+        backup.checksum_sha256 = _sha256_file(file_path)
+        backup.status = SystemBackup.STATUS_COMPLETED
+        backup.completed_at = timezone.now()
+        backup.save(update_fields=[
+            'file_name', 'file_path', 'file_size',
+            'checksum_sha256', 'status', 'completed_at',
+        ])
+    except Exception as exc:
+        backup.status = SystemBackup.STATUS_FAILED
+        backup.error_message = str(exc)
+        backup.completed_at = timezone.now()
+        backup.save(update_fields=[
+            'status', 'error_message', 'completed_at',
+        ])
+        return Response(
+            {
+                'detail': 'No se pudo crear la copia.',
+                'backup': SystemBackupSerializer(backup).data,
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(
+        SystemBackupSerializer(backup).data,
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(['GET', 'PATCH', 'DELETE'])
+@admin_token_required
+def admin_system_backup_detail(request, backup_id):
+    try:
+        backup = SystemBackup.objects.get(id=backup_id)
+    except SystemBackup.DoesNotExist:
+        return Response(
+            {'detail': 'Copia no encontrada.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if request.method == 'GET':
+        return Response(SystemBackupSerializer(backup).data)
+
+    if request.method == 'PATCH':
+        if 'is_protected' not in request.data:
+            return Response(
+                {'detail': 'is_protected es obligatorio.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        backup.is_protected = bool(request.data.get('is_protected'))
+        backup.save(update_fields=['is_protected'])
+        return Response(SystemBackupSerializer(backup).data)
+
+    if backup.is_protected:
+        return Response(
+            {'detail': 'La copia está protegida. Desprotégela antes de eliminarla.'},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    if backup.file_path and os.path.isfile(backup.file_path):
+        try:
+            os.remove(backup.file_path)
+        except OSError:
+            pass
+    backup.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_system_backup_download(request, backup_id):
+    try:
+        backup = SystemBackup.objects.get(
+            id=backup_id,
+            status=SystemBackup.STATUS_COMPLETED,
+        )
+    except SystemBackup.DoesNotExist:
+        return Response(
+            {'detail': 'Copia no encontrada o incompleta.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if not backup.file_path or not os.path.isfile(backup.file_path):
+        return Response(
+            {'detail': 'El archivo ya no existe en el servidor.'},
+            status=status.HTTP_410_GONE,
+        )
+
+    return FileResponse(
+        open(backup.file_path, 'rb'),
+        as_attachment=True,
+        filename=backup.file_name,
+    )
+
+
+@api_view(['POST'])
+@admin_token_required
+def admin_system_backup_verify(request, backup_id):
+    try:
+        backup = SystemBackup.objects.get(id=backup_id)
+    except SystemBackup.DoesNotExist:
+        return Response(
+            {'detail': 'Copia no encontrada.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if not backup.file_path or not os.path.isfile(backup.file_path):
+        return Response({
+            'valid': False,
+            'detail': 'El archivo no existe en el servidor.',
+        }, status=status.HTTP_410_GONE)
+
+    actual_checksum = _sha256_file(backup.file_path)
+    valid = bool(
+        backup.checksum_sha256
+        and actual_checksum == backup.checksum_sha256
+    )
+    return Response({
+        'valid': valid,
+        'expected_checksum': backup.checksum_sha256,
+        'actual_checksum': actual_checksum,
+        'detail': (
+            'La copia es válida.'
+            if valid
+            else 'La suma de verificación no coincide.'
+        ),
+    })
 

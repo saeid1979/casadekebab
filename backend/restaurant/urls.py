@@ -56,6 +56,11 @@ from .views import (
     admin_expense_categories,
     admin_financial_entries,
     admin_financial_entry_detail,
+    admin_system_health,
+    admin_system_backups,
+    admin_system_backup_detail,
+    admin_system_backup_download,
+    admin_system_backup_verify,
 )
 
 router = DefaultRouter()
@@ -87,6 +92,13 @@ urlpatterns = [
     path('admin/accounting/categories/', admin_expense_categories, name='admin-expense-categories'),
     path('admin/accounting/entries/', admin_financial_entries, name='admin-financial-entries'),
     path('admin/accounting/entries/<int:entry_id>/', admin_financial_entry_detail, name='admin-financial-entry-detail'),
+
+    # Admin system backup and health
+    path('admin/system/health/', admin_system_health, name='admin-system-health'),
+    path('admin/system/backups/', admin_system_backups, name='admin-system-backups'),
+    path('admin/system/backups/<int:backup_id>/', admin_system_backup_detail, name='admin-system-backup-detail'),
+    path('admin/system/backups/<int:backup_id>/download/', admin_system_backup_download, name='admin-system-backup-download'),
+    path('admin/system/backups/<int:backup_id>/verify/', admin_system_backup_verify, name='admin-system-backup-verify'),
 
     path('sms-gateway/pending/', sms_gateway_pending, name='sms-gateway-pending'),
     path('sms-gateway/mark/', sms_gateway_mark, name='sms-gateway-mark'),

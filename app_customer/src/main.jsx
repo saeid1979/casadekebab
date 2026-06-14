@@ -80,11 +80,30 @@ function ProductCard({item,onAdd}){
   </article>;
 }
 
+
 function MenuPage({menu,onAdd}){
   const [query,setQuery]=useState('');
+  const [openCategoryId,setOpenCategoryId]=useState(null);
+
+  const normalizedQuery=query.trim().toLowerCase();
+
   const filtered=useMemo(()=>menu.map(c=>({
-    ...c, items:(c.items||[]).filter(i=>`${i.name_es} ${i.description_es||''}`.toLowerCase().includes(query.toLowerCase()))
-  })).filter(c=>c.items.length),[menu,query]);
+    ...c,
+    items:(c.items||[]).filter(i=>
+      `${i.name_es||''} ${i.description_es||''}`.toLowerCase().includes(normalizedQuery)
+    )
+  })).filter(c=>!normalizedQuery || c.items.length),[menu,normalizedQuery]);
+
+  useEffect(()=>{
+    if(normalizedQuery && filtered.length){
+      setOpenCategoryId(filtered[0].id);
+    }
+  },[normalizedQuery,filtered]);
+
+  function toggleCategory(id){
+    setOpenCategoryId(current=>current===id?null:id);
+  }
+
   return <main className="page">
     <section className="hero">
       <div>
@@ -94,13 +113,50 @@ function MenuPage({menu,onAdd}){
       </div>
       <div className="hero-food">🌯</div>
     </section>
-    <input className="search" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar comida..." />
-    {filtered.map(cat=><section key={cat.id} className="category">
-      <h2>{cat.name_es}</h2>
-      <div className="product-grid">{cat.items.map(i=><ProductCard key={i.id} item={i} onAdd={onAdd}/>)}</div>
-    </section>)}
+
+    <input
+      className="search"
+      value={query}
+      onChange={e=>setQuery(e.target.value)}
+      placeholder="Buscar comida..."
+    />
+
+    <div className="accordion-menu">
+      {filtered.map(cat=>{
+        const isOpen=openCategoryId===cat.id;
+
+        return <section key={cat.id} className={`accordion-category ${isOpen?'open':''}`}>
+          <button
+            type="button"
+            className="accordion-header"
+            onClick={()=>toggleCategory(cat.id)}
+            aria-expanded={isOpen}
+          >
+            <span>
+              <b>{cat.name_es}</b>
+              <small>{(cat.items||[]).length} productos</small>
+            </span>
+            <span className="accordion-arrow">{isOpen?'−':'+'}</span>
+          </button>
+
+          {isOpen&&
+            <div className="accordion-content">
+              {(cat.items||[]).length
+                ? <div className="product-grid">
+                    {cat.items.map(i=>
+                      <ProductCard key={i.id} item={i} onAdd={onAdd}/>
+                    )}
+                  </div>
+                : <div className="empty-state">No hay productos en esta categoría.</div>
+              }
+            </div>
+          }
+        </section>
+      })}
+    </div>
   </main>
 }
+
 
 function CartPage({cart,setCart,onCheckout}){
   const subtotal=cart.reduce((s,x)=>s+Number(x.price)*x.qty,0);
@@ -317,10 +373,14 @@ function CheckoutPage({cart,customer,onSuccess,setToast,onBack}){
       let point=null;
       if(form.delivery_type==='delivery'){
         point=await resolveTypedAddress();
+
+        // Do not block the order when autocomplete has no suggestion.
+        // The shared Django backend can geocode the typed Salamanca address
+        // server-side and store the final coordinates for both web and app.
         if(!point){
-          setAddressTouched(true);
+          setAddressTouched(false);
           setAddressResults([]);
-          return setToast('Selecciona una dirección válida de Salamanca de la lista.');
+          setToast('Validando la dirección en el servidor...');
         }
       }
 
@@ -330,8 +390,8 @@ function CheckoutPage({cart,customer,onSuccess,setToast,onBack}){
         customer_email:customer.email||'',
         delivery_type:form.delivery_type,
         address:form.delivery_type==='delivery'?form.address:'',
-        delivery_latitude:coordinate7(point?.lat),
-        delivery_longitude:coordinate7(point?.lng),
+        delivery_latitude:point ? coordinate7(point.lat) : null,
+        delivery_longitude:point ? coordinate7(point.lng) : null,
         route_distance_km:null,
         route_duration_min:null,
         delivery_fee_override:deliveryFee,
@@ -349,8 +409,17 @@ function CheckoutPage({cart,customer,onSuccess,setToast,onBack}){
       const d=e?.response?.data;
       const message=typeof d==='string'
         ? d
-        : (d?.detail || Object.entries(d||{}).map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(' '):String(v)}`).join(' | '));
-      setToast(message || 'No se pudo registrar el pedido.');
+        : (
+            d?.detail ||
+            Object.entries(d||{})
+              .map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(' '):String(v)}`)
+              .join(' | ')
+          );
+
+      setToast(
+        message ||
+        'No se pudo registrar el pedido. Revisa la dirección y vuelve a intentarlo.'
+      );
     }finally{
       setLoading(false);
     }

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry
+from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
 
 class MenuOptionInline(admin.TabularInline):
     model = MenuOption
@@ -179,4 +179,19 @@ class RestaurantFinancialEntryAdmin(admin.ModelAdmin):
     )
     readonly_fields = ('created_at', 'updated_at')
     date_hierarchy = 'entry_date'
+
+@admin.register(SystemBackup)
+class SystemBackupAdmin(admin.ModelAdmin):
+    list_display = (
+        'created_at', 'backup_type', 'status', 'file_name',
+        'file_size', 'created_by_username', 'is_protected'
+    )
+    list_filter = ('backup_type', 'status', 'is_protected', 'created_at')
+    search_fields = ('file_name', 'created_by_username', 'checksum_sha256')
+    readonly_fields = (
+        'backup_type', 'status', 'file_name', 'file_path',
+        'file_size', 'checksum_sha256', 'created_by_username',
+        'error_message', 'created_at', 'completed_at'
+    )
+    list_editable = ('is_protected',)
 

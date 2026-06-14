@@ -2892,10 +2892,13 @@ function DashboardApp() {
     ahmed_share_percent: '50.00',
     bbva_initial_balance: '0.00',
   });
+  const [systemHealth, setSystemHealth] = useState(null);
+  const [systemBackups, setSystemBackups] = useState([]);
+  const [backupWorking, setBackupWorking] = useState(false);
 
   async function loadAdminPanel() {
     try {
-      const [summaryRes, ordersRes, ridersRes, customersRes, catRes, itemRes, settingsRes, accountingRes, entriesRes, expenseCategoriesRes] = await Promise.all([
+      const [summaryRes, ordersRes, ridersRes, customersRes, catRes, itemRes, settingsRes, accountingRes, entriesRes, expenseCategoriesRes, healthRes, backupsRes] = await Promise.all([
         axios.get(`${API_BASE}/dashboard/summary/`),
         axios.get(`${API_BASE}/orders/live/?limit=80`),
         axios.get(`${API_BASE}/riders/`),
@@ -2906,6 +2909,8 @@ function DashboardApp() {
         axios.get(`${API_BASE}/admin/accounting/summary/`),
         axios.get(`${API_BASE}/admin/accounting/entries/?limit=500`),
         axios.get(`${API_BASE}/admin/accounting/categories/`),
+        axios.get(`${API_BASE}/admin/system/health/`),
+        axios.get(`${API_BASE}/admin/system/backups/`),
       ]);
       setData(summaryRes.data);
       setOrders(ordersRes.data || []);
@@ -2917,6 +2922,8 @@ function DashboardApp() {
       setAccountingSummary(accountingRes.data || null);
       setFinancialEntries(entriesRes.data || []);
       setExpenseCategories(expenseCategoriesRes.data || []);
+      setSystemHealth(healthRes.data || null);
+      setSystemBackups(backupsRes.data || []);
       if (accountingRes.data?.settings) {
         setAccountingSettingsForm({
           saeid_share_percent: String(accountingRes.data.settings.saeid_share_percent || '50.00'),
@@ -3191,6 +3198,105 @@ function DashboardApp() {
     URL.revokeObjectURL(url);
   }
 
+  function formatFileSize(bytes) {
+    const value = Number(bytes || 0);
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+    return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
+
+  async function createSystemBackup(backupType) {
+    const labels = {
+      database: 'base de datos',
+      configuration: 'configuración',
+      media: 'archivos Media',
+    };
+    if (!window.confirm(`¿Crear una copia de ${labels[backupType] || backupType}?`)) return;
+
+    try {
+      setBackupWorking(true);
+      const response = await axios.post(`${API_BASE}/admin/system/backups/`, {
+        backup_type: backupType,
+      });
+      setMessage(`Copia creada: ${response.data.file_name || labels[backupType]}`);
+      await loadAdminPanel();
+    } catch (err) {
+      setMessage(
+        err?.response?.data?.detail
+        || err?.response?.data?.backup?.error_message
+        || 'No se pudo crear la copia.'
+      );
+    } finally {
+      setBackupWorking(false);
+    }
+  }
+
+  async function downloadSystemBackup(backup) {
+    try {
+      setBackupWorking(true);
+      const response = await axios.get(
+        `${API_BASE}/admin/system/backups/${backup.id}/download/`,
+        { responseType: 'blob' }
+      );
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = backup.file_name || `backup-${backup.id}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo descargar la copia.');
+    } finally {
+      setBackupWorking(false);
+    }
+  }
+
+  async function verifySystemBackup(backup) {
+    try {
+      setBackupWorking(true);
+      const response = await axios.post(
+        `${API_BASE}/admin/system/backups/${backup.id}/verify/`
+      );
+      setMessage(response.data.detail || (response.data.valid ? 'Copia válida.' : 'Copia no válida.'));
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo verificar la copia.');
+    } finally {
+      setBackupWorking(false);
+    }
+  }
+
+  async function toggleBackupProtection(backup) {
+    try {
+      setBackupWorking(true);
+      await axios.patch(`${API_BASE}/admin/system/backups/${backup.id}/`, {
+        is_protected: !backup.is_protected,
+      });
+      setMessage(backup.is_protected ? 'Protección eliminada.' : 'Copia protegida.');
+      await loadAdminPanel();
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo cambiar la protección.');
+    } finally {
+      setBackupWorking(false);
+    }
+  }
+
+  async function deleteSystemBackup(backup) {
+    if (!window.confirm(`¿Eliminar definitivamente "${backup.file_name || 'esta copia'}"?`)) return;
+    try {
+      setBackupWorking(true);
+      await axios.delete(`${API_BASE}/admin/system/backups/${backup.id}/`);
+      setMessage('Copia eliminada.');
+      await loadAdminPanel();
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo eliminar la copia.');
+    } finally {
+      setBackupWorking(false);
+    }
+  }
+
   async function autoAssignRider(orderCode) {
     try {
       await axios.post(`${API_BASE}/orders/${orderCode}/auto-assign-rider/`);
@@ -3232,6 +3338,7 @@ function DashboardApp() {
     ['tracking','Mapa repartidores en vivo'],
     ['customers','Clientes'],
     ['accounting','Contabilidad'],
+    ['system','Sistema / Backup'],
     ['config','Configuración'],
     ['menu','Categorías / Menú'],
     ['payments','Pagos tarjeta'],
@@ -3579,6 +3686,127 @@ function DashboardApp() {
         </section>
       </section>}
 
+
+
+      {tab === 'system' && <section className="system-backup-page">
+        <section className="system-health-grid">
+          {Object.entries(systemHealth?.health || {}).map(([key, item]) => <article key={key} className={`system-health-card ${item.status}`}>
+            <span>{({
+              backend: 'Backend',
+              database: 'PostgreSQL',
+              media: 'Media / Archivos',
+              sms_gateway: 'SMS Gateway',
+              telegram: 'Telegram',
+            })[key] || key}</span>
+            <b>{item.label}</b>
+            <small>{item.detail}</small>
+          </article>)}
+          <article className="system-health-card info">
+            <span>Última copia</span>
+            <b>{systemHealth?.latest_backup?.created_at ? new Date(systemHealth.latest_backup.created_at).toLocaleString() : 'Sin copias'}</b>
+            <small>{systemHealth?.completed_count || 0} completadas · {systemHealth?.failed_count || 0} fallidas</small>
+          </article>
+        </section>
+
+        <section className="admin-card render-backup-warning">
+          <div>
+            <h2>Importante sobre Render</h2>
+            <p>
+              Estas copias se crean en el almacenamiento del backend. Si el servicio no tiene Persistent Disk,
+              el archivo puede desaparecer después de un reinicio o deploy. Descárgalo inmediatamente.
+            </p>
+          </div>
+          <span>Restore completo no se ejecuta desde el navegador por seguridad.</span>
+        </section>
+
+        <section className="backup-action-grid">
+          <article className="admin-card">
+            <span className="admin-kicker">Datos del negocio</span>
+            <h2>Copia de base de datos JSON</h2>
+            <p className="muted">Exporta pedidos, clientes, menú, repartidores, configuración y contabilidad. No incluye contraseñas ni tokens.</p>
+            <button className="pay" disabled={backupWorking} onClick={() => createSystemBackup('database')}>
+              Crear copia de datos
+            </button>
+          </article>
+
+          <article className="admin-card">
+            <span className="admin-kicker">Configuración</span>
+            <h2>Exportar configuración</h2>
+            <p className="muted">Horas, categorías, cupones, ajustes contables y parámetros del restaurante.</p>
+            <button className="pay" disabled={backupWorking} onClick={() => createSystemBackup('configuration')}>
+              Exportar configuración
+            </button>
+          </article>
+
+          <article className="admin-card">
+            <span className="admin-kicker">Imágenes y documentos</span>
+            <h2>Copia de archivos Media</h2>
+            <p className="muted">Crea un ZIP con imágenes de productos, recibos y documentos cargados.</p>
+            <button className="pay" disabled={backupWorking} onClick={() => createSystemBackup('media')}>
+              Crear ZIP de Media
+            </button>
+          </article>
+        </section>
+
+        <section className="admin-card backup-history-card">
+          <div className="backup-history-heading">
+            <div>
+              <h2>Historial de copias</h2>
+              <p className="muted">{systemBackups.length} registros visibles</p>
+            </div>
+            <button className="mini-action" onClick={loadAdminPanel} disabled={backupWorking}>Actualizar</button>
+          </div>
+
+          <div className="admin-table-wrap">
+            <table className="admin-table backup-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Tipo</th>
+                  <th>Estado</th>
+                  <th>Archivo</th>
+                  <th>Tamaño</th>
+                  <th>Creado por</th>
+                  <th>Checksum</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {systemBackups.map(backup => <tr key={backup.id} className={backup.status === 'failed' ? 'backup-failed-row' : ''}>
+                  <td>{new Date(backup.created_at).toLocaleString()}</td>
+                  <td>{backup.backup_type_label}</td>
+                  <td><span className={`backup-status-badge ${backup.status}`}>{backup.status_label}</span>{backup.error_message && <small>{backup.error_message}</small>}</td>
+                  <td><b>{backup.file_name || '-'}</b>{backup.is_protected && <small>🔒 Protegida</small>}</td>
+                  <td>{formatFileSize(backup.file_size)}</td>
+                  <td>{backup.created_by_username || '-'}</td>
+                  <td><code>{backup.checksum_sha256 ? `${backup.checksum_sha256.slice(0,12)}…` : '-'}</code></td>
+                  <td className="backup-row-actions">
+                    <button disabled={!backup.download_available || backupWorking} onClick={() => downloadSystemBackup(backup)}>Descargar</button>
+                    <button disabled={!backup.download_available || backupWorking} onClick={() => verifySystemBackup(backup)}>Verificar</button>
+                    <button disabled={backupWorking} onClick={() => toggleBackupProtection(backup)}>{backup.is_protected ? 'Desproteger' : 'Proteger'}</button>
+                    <button className="danger-button compact" disabled={backup.is_protected || backupWorking} onClick={() => deleteSystemBackup(backup)}>Eliminar</button>
+                  </td>
+                </tr>)}
+                {!systemBackups.length && <tr><td colSpan="8" className="muted">Todavía no se ha creado ninguna copia.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="admin-card restore-safety-card">
+          <h2>Recuperación de emergencia</h2>
+          <p>
+            La restauración completa de PostgreSQL debe ejecutarse desde Render o una terminal segura.
+            Antes de restaurar se debe crear una copia nueva, activar modo mantenimiento y comprobar el checksum.
+          </p>
+          <ol>
+            <li>Descargar y conservar la copia actual.</li>
+            <li>Crear un backup administrado desde Render PostgreSQL.</li>
+            <li>Restaurar en una base temporal y validar los datos.</li>
+            <li>Cambiar la base de producción solo después de la verificación.</li>
+          </ol>
+        </section>
+      </section>}
 
       {tab === 'config' && <section className="admin-grid-2"><div className="admin-card"><h2>Configuración actual</h2>{settings && <><p><b>Restaurante</b><span>{settings.restaurant_name}</span></p><p><b>Teléfono</b><span>{settings.phone}</span></p><p><b>Dirección</b><span>{settings.address}</span></p><p><b>Horario</b><span>{settings.opening_hours}</span></p><p><b>Estado</b><span>{settings.is_open ? 'Abierto' : 'Cerrado'}</span></p></>}</div><div className="admin-card"><h2>Accesos rápidos</h2><button className="pay" onClick={() => window.location.href='/settings-admin'}>Abrir configuración completa</button><button className="mini-action" onClick={() => window.location.href='/menu-admin'}>Editar menú</button><button className="mini-action" onClick={() => window.location.href='/orders-live'}>Pedidos clásicos</button></div></section>}
 

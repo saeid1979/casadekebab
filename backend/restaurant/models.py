@@ -569,3 +569,42 @@ class RestaurantFinancialEntry(models.Model):
     def __str__(self):
         return f'{self.entry_date} - {self.title} - {self.amount}'
 
+class SystemBackup(models.Model):
+    TYPE_DATABASE = 'database'
+    TYPE_CONFIGURATION = 'configuration'
+    TYPE_MEDIA = 'media'
+    TYPE_CHOICES = [
+        (TYPE_DATABASE, 'Base de datos JSON'),
+        (TYPE_CONFIGURATION, 'Configuración'),
+        (TYPE_MEDIA, 'Archivos Media'),
+    ]
+
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_COMPLETED = 'completed'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pendiente'),
+        (STATUS_RUNNING, 'En proceso'),
+        (STATUS_COMPLETED, 'Completado'),
+        (STATUS_FAILED, 'Fallido'),
+    ]
+
+    backup_type = models.CharField(max_length=30, choices=TYPE_CHOICES, db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    file_name = models.CharField(max_length=255, blank=True, default='')
+    file_path = models.CharField(max_length=600, blank=True, default='')
+    file_size = models.BigIntegerField(default=0)
+    checksum_sha256 = models.CharField(max_length=64, blank=True, default='')
+    created_by_username = models.CharField(max_length=150, blank=True, default='')
+    error_message = models.TextField(blank=True, default='')
+    is_protected = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.get_backup_type_display()} - {self.created_at:%Y-%m-%d %H:%M}'
+
