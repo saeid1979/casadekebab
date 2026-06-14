@@ -16,6 +16,7 @@ from .views import (
     auto_assign_rider,
     rider_orders,
     rider_location,
+    rider_update_order_status,
     customer_orders,
     dashboard_summary,
     admin_customers,
@@ -95,6 +96,7 @@ urlpatterns = [
     path('riders/', riders_list, name='riders-list'),
     path('rider/orders/', rider_orders, name='rider-orders'),
     path('rider/location/', rider_location, name='rider-location'),
+    path('rider/orders/<str:order_code>/status/', rider_update_order_status, name='rider-update-order-status'),
 
 
     # Menu management

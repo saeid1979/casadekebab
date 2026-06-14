@@ -455,6 +455,20 @@ def rider_location(request):
     return Response(RiderSerializer(rider).data)
 
 
+@api_view(['POST'])
+def rider_update_order_status(request, order_code):
+    phone=(request.data.get('phone') or '').strip(); new_status=(request.data.get('status') or '').strip()
+    if not phone or not new_status:return Response({'detail':'phone and status are required'},status=status.HTTP_400_BAD_REQUEST)
+    try:rider=Rider.objects.get(phone=phone,is_active=True)
+    except Rider.DoesNotExist:return Response({'detail':'Rider not found'},status=status.HTTP_404_NOT_FOUND)
+    try:order=Order.objects.select_related('assigned_rider').prefetch_related('items','payments').get(order_code=order_code)
+    except Order.DoesNotExist:return Response({'detail':'Order not found'},status=status.HTTP_404_NOT_FOUND)
+    if order.assigned_rider_id!=rider.id:return Response({'detail':'Este pedido no está asignado a este repartidor.'},status=status.HTTP_403_FORBIDDEN)
+    allowed={Order.STATUS_PENDING:{Order.STATUS_ACCEPTED,Order.STATUS_OUT_FOR_DELIVERY,Order.STATUS_CANCELLED},Order.STATUS_ACCEPTED:{Order.STATUS_OUT_FOR_DELIVERY,Order.STATUS_CANCELLED},Order.STATUS_PREPARING:{Order.STATUS_OUT_FOR_DELIVERY,Order.STATUS_CANCELLED},Order.STATUS_READY:{Order.STATUS_OUT_FOR_DELIVERY,Order.STATUS_CANCELLED},Order.STATUS_OUT_FOR_DELIVERY:{Order.STATUS_DELIVERED,Order.STATUS_CANCELLED}}
+    if new_status not in allowed.get(order.status,set()):return Response({'detail':f'No se puede cambiar {order.status} a {new_status}.'},status=status.HTTP_400_BAD_REQUEST)
+    order.status=new_status;order.save(update_fields=['status','updated_at']);return Response(OrderSerializer(order).data)
+
+
 @api_view(['GET'])
 def customer_orders(request):
     """Return a customer profile and all previous orders by phone number."""
