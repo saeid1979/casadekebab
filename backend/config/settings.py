@@ -84,11 +84,21 @@ REST_FRAMEWORK = {
 }
 
 CORS_ALLOWED_ORIGINS = [
+    'http://localhost',
+    'https://localhost',
+    'capacitor://localhost',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'https://casadekebab.com',
     'https://www.casadekebab.com',
+    'https://casadekebab-frontend-v1.onrender.com',
 ]
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^capacitor://localhost$',
+    r'^https?://localhost(?::\d+)?$',
+]
+
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
