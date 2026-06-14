@@ -499,21 +499,77 @@ def test_telegram(request):
 @api_view(['GET', 'POST'])
 @admin_token_required
 def riders_list(request):
-    """List active riders or create a rider from the React live orders panel."""
+    """List all riders for admin management or create/reactivate a rider."""
     if request.method == 'GET':
-        qs = Rider.objects.filter(is_active=True).order_by('name')
+        qs = Rider.objects.all().order_by('-is_active', 'name')
         return Response(RiderSerializer(qs, many=True).data)
 
-    name = request.data.get('name', '').strip()
-    phone = request.data.get('phone', '').strip()
+    name = (request.data.get('name') or '').strip()
+    phone = (request.data.get('phone') or '').strip()
     if not name or not phone:
-        return Response({'detail': 'name and phone are required'}, status=status.HTTP_400_BAD_REQUEST)
-    rider, created = Rider.objects.get_or_create(phone=phone, defaults={'name': name})
+        return Response(
+            {'detail': 'name and phone are required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    rider, created = Rider.objects.get_or_create(
+        phone=phone,
+        defaults={'name': name, 'is_active': True},
+    )
     if not created:
         rider.name = name
         rider.is_active = True
         rider.save(update_fields=['name', 'is_active'])
-    return Response(RiderSerializer(rider).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    return Response(
+        RiderSerializer(rider).data,
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )
+
+
+@api_view(['PATCH'])
+@admin_token_required
+def rider_detail(request, rider_id):
+    """Allow an admin to activate or deactivate a rider."""
+    try:
+        rider = Rider.objects.get(id=rider_id)
+    except Rider.DoesNotExist:
+        return Response(
+            {'detail': 'Rider not found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if 'is_active' not in request.data:
+        return Response(
+            {'detail': 'is_active is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    raw_value = request.data.get('is_active')
+    if isinstance(raw_value, bool):
+        is_active = raw_value
+    elif str(raw_value).strip().lower() in {'true', '1', 'yes', 'on'}:
+        is_active = True
+    elif str(raw_value).strip().lower() in {'false', '0', 'no', 'off'}:
+        is_active = False
+    else:
+        return Response(
+            {'detail': 'is_active must be true or false'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    rider.is_active = is_active
+    rider.save(update_fields=['is_active'])
+
+    return Response({
+        'success': True,
+        'message': (
+            'Repartidor activado correctamente.'
+            if is_active
+            else 'Repartidor desactivado correctamente.'
+        ),
+        'rider': RiderSerializer(rider).data,
+    })
 
 
 @api_view(['POST'])

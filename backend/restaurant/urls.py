@@ -12,6 +12,7 @@ from .views import (
     update_order_status,
     test_telegram,
     riders_list,
+    rider_detail,
     assign_rider,
     auto_assign_rider,
     rider_orders,
@@ -98,6 +99,7 @@ urlpatterns = [
 
     # Riders. Keep /rider/* because the current React frontend calls these paths.
     path('riders/', riders_list, name='riders-list'),
+    path('riders/<int:rider_id>/', rider_detail, name='rider-detail'),
     path('rider/orders/', rider_orders, name='rider-orders'),
     path('rider/location/', rider_location, name='rider-location'),
     path('auth/rider/login/', rider_login, name='rider-login'),

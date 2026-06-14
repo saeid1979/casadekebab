@@ -1611,6 +1611,30 @@ function LiveOrdersApp() {
     }
   }
 
+  async function toggleRiderActive(rider) {
+    const nextActive = !rider.is_active;
+    const actionText = nextActive ? 'activar' : 'desactivar';
+    if (!window.confirm(`¿Seguro que deseas ${actionText} a ${rider.name}?`)) return;
+
+    try {
+      setLoading(true);
+      const res = await axios.patch(
+        `${API_BASE}/riders/${rider.id}/`,
+        { is_active: nextActive },
+        { headers: adminAuthHeaders() }
+      );
+      setRiders(current => current.map(item =>
+        item.id === rider.id ? (res.data.rider || { ...item, is_active: nextActive }) : item
+      ));
+      setMessage(res.data.message || `Repartidor ${nextActive ? 'activado' : 'desactivado'}.`);
+      await loadOrders();
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo cambiar el estado del repartidor.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function assignRider(orderCode, riderId) {
     try {
       await axios.post(`${API_BASE}/orders/${orderCode}/assign-rider/`, { rider_id: riderId || null });
@@ -1659,7 +1683,31 @@ function LiveOrdersApp() {
           <input placeholder="Teléfono" value={newRider.phone} onChange={e => setNewRider({...newRider, phone: e.target.value})}/>
           <button onClick={addRider}>Añadir repartidor</button>
         </div>
-        <div className="rider-list">{riders.map(r => <span key={r.id}>{r.name} · {r.phone} · {r.active_orders_count} pedidos</span>)}</div>
+        <div className="rider-admin-list">
+          {riders.map(r => <article className={`rider-admin-card ${r.is_active ? 'is-active' : 'is-inactive'}`} key={r.id}>
+            <div className="rider-admin-main">
+              <span className={`rider-status-dot ${r.is_active ? 'active' : 'inactive'}`}></span>
+              <div>
+                <b>{r.name}</b>
+                <small>{r.phone} · {r.active_orders_count} pedidos activos</small>
+              </div>
+            </div>
+            <div className="rider-admin-actions">
+              <span className={`rider-state-badge ${r.is_active ? 'active' : 'inactive'}`}>
+                {r.is_active ? 'Activo' : 'Inactivo'}
+              </span>
+              <button
+                type="button"
+                disabled={loading}
+                className={r.is_active ? 'rider-disable-button' : 'rider-enable-button'}
+                onClick={() => toggleRiderActive(r)}
+              >
+                {r.is_active ? 'Desactivar' : 'Activar'}
+              </button>
+            </div>
+          </article>)}
+          {!riders.length && <p className="muted">No hay repartidores registrados.</p>}
+        </div>
       </section>
       <div className="orders-grid">
         {orders.map(order => <article className={`order-card status-${order.status}`} key={order.id}>
@@ -1678,7 +1726,7 @@ function LiveOrdersApp() {
           </select>
           <select value={order.assigned_rider_data?.id || ''} onChange={e => assignRider(order.order_code, e.target.value)}>
             <option value="">Asignar repartidor</option>
-            {riders.map(r => <option key={r.id} value={r.id}>{r.name} · {r.phone}</option>)}
+            {riders.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name} · {r.phone}</option>)}
           </select>
         </article>)}
         {!orders.length && <p>No hay pedidos todavía.</p>}
