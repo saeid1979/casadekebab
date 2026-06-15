@@ -49,3 +49,8 @@ Thumbs.db
 
 # Project temporary folders
 replacement/
+
+**/google-services.json
+**/*firebase-admin*.json
+**/service-account*.json
+**/PrivateKeys/

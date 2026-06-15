@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
+from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
 
 class MenuOptionInline(admin.TabularInline):
     model = MenuOption
@@ -142,17 +142,27 @@ class OrderChatMessageAdmin(admin.ModelAdmin):
 
 @admin.register(OrderReview)
 class OrderReviewAdmin(admin.ModelAdmin):
-    list_display = ('order', 'customer_name', 'rating', 'food_rating', 'delivery_rating', 'rider_rating', 'would_recommend', 'is_featured', 'status', 'created_at', 'approved_at')
-    list_editable = ('is_featured', 'status')
+    list_display = ('order', 'customer_name', 'rating', 'status', 'created_at', 'approved_at')
+    list_editable = ('status',)
     list_filter = ('status', 'rating', 'created_at')
     search_fields = ('order__order_code', 'customer_name', 'customer_phone', 'comment')
     readonly_fields = ('created_at', 'approved_at')
-    fieldsets = (
-        ('Pedido y cliente', {'fields': ('order', 'customer_name', 'customer_phone')}),
-        ('Valoraciones', {'fields': ('rating', 'food_rating', 'packaging_rating', 'delivery_rating', 'rider_rating', 'would_recommend')}),
-        ('Opinión', {'fields': ('comment', 'admin_reply', 'is_featured', 'status')}),
-        ('Fechas', {'fields': ('created_at', 'approved_at')}),
+
+
+@admin.register(CustomerPushDevice)
+class CustomerPushDeviceAdmin(admin.ModelAdmin):
+    list_display = (
+        'phone', 'customer', 'platform', 'app_version',
+        'is_active', 'last_seen_at', 'created_at'
     )
+    list_filter = ('platform', 'is_active', 'created_at', 'last_seen_at')
+    search_fields = ('phone', 'customer__name', 'customer__phone', 'device_token')
+    readonly_fields = (
+        'device_token', 'last_seen_at', 'last_error',
+        'created_at', 'updated_at'
+    )
+    list_editable = ('is_active',)
+
 
 @admin.register(ExpenseCategory)
 class ExpenseCategoryAdmin(admin.ModelAdmin):

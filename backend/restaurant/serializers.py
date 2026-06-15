@@ -4,7 +4,7 @@ from django.conf import settings
 import requests
 from django.utils import timezone
 from rest_framework import serializers
-from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
+from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
 
 
 SALAMANCA_LAT_MIN = 40.80
@@ -208,6 +208,17 @@ class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
         fields = ['id', 'name', 'phone', 'email', 'default_address', 'total_orders', 'last_order_at', 'last_login_at', 'addresses']
+
+
+class CustomerPushDeviceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomerPushDevice
+        fields = [
+            'id', 'customer', 'phone', 'device_token', 'platform',
+            'app_version', 'is_active', 'last_seen_at', 'created_at'
+        ]
+        read_only_fields = ['id', 'last_seen_at', 'created_at']
+
 
 class SendPhoneCodeSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=30)
@@ -434,8 +445,8 @@ class OrderReviewSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderReview
-        fields = ['id', 'order_code', 'customer_name', 'rating', 'food_rating', 'packaging_rating', 'delivery_rating', 'rider_rating', 'would_recommend', 'comment', 'admin_reply', 'is_featured', 'status', 'created_at', 'approved_at']
-        read_only_fields = ['id', 'order_code', 'admin_reply', 'is_featured', 'status', 'created_at', 'approved_at']
+        fields = ['id', 'order_code', 'customer_name', 'rating', 'comment', 'status', 'created_at', 'approved_at']
+        read_only_fields = ['id', 'order_code', 'status', 'created_at', 'approved_at']
 
 class ExpenseCategorySerializer(serializers.ModelSerializer):
     class Meta:

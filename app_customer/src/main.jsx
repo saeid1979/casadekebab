@@ -3,6 +3,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import axios from 'axios';
 import L from 'leaflet';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { PushNotifications } from '@capacitor/push-notifications';
+import { Capacitor } from '@capacitor/core';
 import 'leaflet/dist/leaflet.css';
 import './styles.css';
 import logo from './assets/logo.png';
@@ -13,7 +16,13 @@ const RESTAURANT_ADDRESS = 'Calle García Lorca, 1, Salamanca 37004';
 const CUSTOMER_KEY = 'cdkt_app_customer';
 const LAST_ORDER_KEY = 'cdkt_app_last_order';
 const FAVORITES_KEY = 'cdkt_app_favorites';
-const GOOGLE_MAPS_URL = 'https://www.google.com/maps/search/?api=1&query=Casa%20de%20Kebab%20Turco%20Salamanca';
+const CART_KEY = 'cdkt_app_cart';
+const SAVED_ADDRESSES_KEY = 'cdkt_app_saved_addresses';
+const RECENT_ITEMS_KEY = 'cdkt_app_recent_items';
+const LAST_MENU_CACHE_KEY = 'cdkt_app_menu_cache';
+const NOTIFICATIONS_KEY = 'cdkt_app_notifications';
+const ORDER_STATUS_CACHE_KEY = 'cdkt_app_order_status_cache';
+const PUSH_TOKEN_KEY = 'cdkt_app_push_token';
 
 const statusSteps = [
   ['pending', 'Pedido recibido'],
@@ -39,8 +48,131 @@ function digits(v){ return String(v || '').replace(/\D/g, '').slice(-9); }
 function getCustomer(){ try { return JSON.parse(localStorage.getItem(CUSTOMER_KEY) || 'null'); } catch { return null; } }
 function saveCustomer(v){ localStorage.setItem(CUSTOMER_KEY, JSON.stringify(v)); }
 function clearCustomer(){ localStorage.removeItem(CUSTOMER_KEY); localStorage.removeItem(LAST_ORDER_KEY); }
-function getFavorites(){ try{return JSON.parse(localStorage.getItem(FAVORITES_KEY)||'[]')}catch{return []} }
-function saveFavorites(v){ localStorage.setItem(FAVORITES_KEY,JSON.stringify(v)); }
+function getFavorites(){ try { return JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]'); } catch { return []; } }
+function saveFavorites(v){ localStorage.setItem(FAVORITES_KEY, JSON.stringify(v)); }
+function getSavedCart(){ try { return JSON.parse(localStorage.getItem(CART_KEY) || '[]'); } catch { return []; } }
+function saveCart(v){ localStorage.setItem(CART_KEY, JSON.stringify(v)); }
+function getSavedAddresses(){
+  try { return JSON.parse(localStorage.getItem(SAVED_ADDRESSES_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveSavedAddresses(v){
+  localStorage.setItem(SAVED_ADDRESSES_KEY, JSON.stringify(v));
+}
+function getRecentItems(){
+  try { return JSON.parse(localStorage.getItem(RECENT_ITEMS_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveRecentItems(v){
+  localStorage.setItem(RECENT_ITEMS_KEY, JSON.stringify(v));
+}
+function getCachedMenu(){
+  try { return JSON.parse(localStorage.getItem(LAST_MENU_CACHE_KEY) || 'null'); }
+  catch { return null; }
+}
+function saveCachedMenu(v){
+  try { localStorage.setItem(LAST_MENU_CACHE_KEY, JSON.stringify(v)); } catch {}
+}
+function getNotifications(){
+  try { return JSON.parse(localStorage.getItem(NOTIFICATIONS_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveNotifications(v){
+  try { localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(v)); } catch {}
+}
+function getOrderStatusCache(){
+  try { return JSON.parse(localStorage.getItem(ORDER_STATUS_CACHE_KEY) || '{}'); }
+  catch { return {}; }
+}
+function saveOrderStatusCache(v){
+  try { localStorage.setItem(ORDER_STATUS_CACHE_KEY, JSON.stringify(v)); } catch {}
+}
+function statusLabel(status){
+  return (statusSteps.find(row=>row[0]===status)||[null,status])[1];
+}
+function notificationText(order){
+  const labels={
+    pending:'Hemos recibido tu pedido.',
+    accepted:'El restaurante ha aceptado tu pedido.',
+    preparing:'Tu pedido se está preparando.',
+    ready:'Tu pedido está listo.',
+    out_for_delivery:'El repartidor está en camino.',
+    delivered:'Tu pedido ha sido entregado. ¡Buen provecho!',
+    cancelled:'Tu pedido ha sido cancelado.'
+  };
+  return labels[order?.status] || `Estado actualizado: ${statusLabel(order?.status)}`;
+}
+async function requestLocalNotificationPermission(){
+  try{
+    const current=await LocalNotifications.checkPermissions();
+    if(current.display==='granted') return true;
+    const requested=await LocalNotifications.requestPermissions();
+    return requested.display==='granted';
+  }catch{
+    return false;
+  }
+}
+async function showLocalOrderNotification(order){
+  try{
+    const granted=await requestLocalNotificationPermission();
+    if(!granted) return false;
+    const id=Math.abs(
+      Array.from(`${order?.order_code||''}-${order?.status||''}`)
+        .reduce((sum,char)=>((sum*31)+char.charCodeAt(0))|0,7)
+    ) || Date.now()%2147483647;
+
+    await LocalNotifications.schedule({
+      notifications:[{
+        id,
+        title:`Pedido ${order?.order_code||''} · ${statusLabel(order?.status)}`,
+        body:notificationText(order),
+        schedule:{at:new Date(Date.now()+300)},
+        sound:null,
+        smallIcon:'ic_stat_icon_config_sample',
+        extra:{order_code:order?.order_code,status:order?.status}
+      }]
+    });
+    return true;
+  }catch{
+    return false;
+  }
+}
+
+async function registerPushTokenWithBackend(customer,token){
+  if(!customer?.phone||!token) return false;
+  try{
+    await axios.post(`${API_BASE}/push/register/`,{
+      customer_id:customer.id||null,
+      phone:digits(customer.phone),
+      device_token:token,
+      platform:Capacitor.getPlatform()||'android',
+      app_version:'1.0.0'
+    });
+    localStorage.setItem(PUSH_TOKEN_KEY,token);
+    return true;
+  }catch(error){
+    console.warn('Push token registration failed',error?.response?.data||error?.message);
+    return false;
+  }
+}
+
+async function unregisterPushTokenFromBackend(customer){
+  const token=localStorage.getItem(PUSH_TOKEN_KEY)||'';
+  if(!token) return true;
+  try{
+    await axios.post(`${API_BASE}/push/unregister/`,{
+      phone:digits(customer?.phone||''),
+      device_token:token
+    });
+  }catch(error){
+    console.warn('Push token unregister failed',error?.response?.data||error?.message);
+  }finally{
+    localStorage.removeItem(PUSH_TOKEN_KEY);
+  }
+  return true;
+}
+
+
 function safeNum(v){ if(v === null || v === undefined || v === '') return null; const n=Number(v); return Number.isFinite(n)?n:null; }
 function coordinate7(v){
   const n=safeNum(v);
@@ -60,93 +192,234 @@ function Toast({message,onClose}){
   return <div className="toast" onClick={onClose}>{message}</div>;
 }
 
-function Header({customer,onLogout,onAccount}){
-  const [open,setOpen]=useState(true);
+function Header({customer,onLogout,onAccount,isOnline,pushReady}){
   return <header className="app-header pro-header">
-    <button className="brand brand-button" onClick={onAccount}>
+    <div className="brand">
       <img src={logo} alt="Casa de Kebab Turco" />
-      <div><b>Casa de Kebab Turco</b><small>Calle García Lorca, 1 · Salamanca</small></div>
-    </button>
+      <div>
+        <small className="brand-kicker">CASA DE KEBAB TURCO</small>
+        <b>Pedido rápido y fácil</b>
+        <span className="open-status"><i></i> Abierto · 12:00–01:00</span>
+      </div>
+    </div>
     <div className="header-actions">
-      <span className={`store-state ${open?'open':'closed'}`}><i></i>{open?'Abierto':'Cerrado'}</span>
-      {customer ? <button className="profile-button" onClick={onAccount}>{(customer.name||customer.phone||'C')[0]}</button> : <span className="online-dot">● Online</span>}
+      <span className={`network-chip ${isOnline?'online':'offline'}`}>{isOnline?'Online':'Offline'}</span>
+      {customer&&Capacitor.isNativePlatform()?<span className={`push-chip ${pushReady?'ready':'waiting'}`}>{pushReady?'Push activo':'Push pendiente'}</span>:null}
+      {customer
+        ? <button className="profile-chip" onClick={onAccount}>
+            <span>{(customer?.name||customer?.phone||'C')[0]}</span>
+            <small>{customer?.name||'Mi cuenta'}</small>
+          </button>
+        : <span className="online-dot">● Online</span>}
     </div>
   </header>;
 }
 
-function ProductCard({item,onAdd,isFavorite,onFavorite}){
-  const image=item.image_url;
-  return <article className="product-card pro-product-card">
+function ProductCard({item,onAdd,isFavorite,onToggleFavorite,onView,index=0}){
+  const image=item.image_url || item.image || '';
+  return <article className="product-card pro-product-card" style={{animationDelay:`${Math.min(index,12)*45}ms`}} onClick={()=>onView?.(item)}>
     <div className="product-media">
-      {image?<img src={image} alt={item.name_es}/>:<div className="food-placeholder">🥙</div>}
-      <button className={`favorite-button ${isFavorite?'active':''}`} onClick={()=>onFavorite(item.id)}>{isFavorite?'♥':'♡'}</button>
-      {item.is_available===false&&<span className="sold-out">Agotado</span>}
+      {image
+        ? <img src={image} alt={item.name_es} loading="lazy"/>
+        : <div className="food-placeholder">🥙</div>}
+      <button
+        type="button"
+        className={`favorite-button ${isFavorite?'active':''}`}
+        onClick={(e)=>{e.stopPropagation();onToggleFavorite(item.id)}}
+        aria-label="Favorito"
+      >{isFavorite?'♥':'♡'}</button>
+      {!item.is_available&&<span className="sold-out">Agotado</span>}
     </div>
     <div className="product-copy">
-      <div className="product-title-row"><h3>{item.name_es}</h3><strong>{money(item.price)}</strong></div>
+      <div className="product-title-row">
+        <h3>{item.name_es}</h3>
+        <span className="rating-mini">★ 4.8</span>
+      </div>
       <p>{item.description_es || 'Preparado al momento con ingredientes frescos.'}</p>
-      <button className="add-button" disabled={item.is_available===false} onClick={()=>onAdd(item)}><span>＋</span> Añadir</button>
+      <div className="product-foot">
+        <strong>{money(item.price)}</strong>
+        <button
+          className="add-product-button"
+          disabled={item.is_available===false}
+          onClick={(e)=>{e.stopPropagation();onAdd(item)}}
+        >
+          <span>+</span> Añadir
+        </button>
+      </div>
     </div>
   </article>;
 }
 
-function ReviewsStrip({reviews}){
-  if(!reviews.length) return null;
-  const average=(reviews.reduce((s,r)=>s+Number(r.rating||0),0)/reviews.length).toFixed(1);
-  return <section className="reviews-strip">
-    <div className="reviews-head"><div><small>OPINIONES REALES</small><h2>Clientes felices</h2></div><div className="rating-summary"><b>{average}</b><span>★★★★★</span><small>{reviews.length} opiniones</small></div></div>
-    <div className="review-cards">{reviews.slice(0,6).map(r=><article key={r.id}><div className="stars">{'★'.repeat(r.rating)}{'☆'.repeat(5-r.rating)}</div><p>“{r.comment}”</p><b>{r.customer_name||'Cliente'}</b></article>)}</div>
-  </section>;
-}
 
-function MenuPage({menu,onAdd,reviews}){
+function MenuPage({menu,onAdd,favorites,onToggleFavorite,onView,customer,onGoOrders,loading,recentItems,isOnline}){
   const [query,setQuery]=useState('');
   const [activeCategory,setActiveCategory]=useState('all');
-  const [favorites,setFavorites]=useState(getFavorites());
-  const normalizedQuery=query.trim().toLowerCase();
-  const allItems=useMemo(()=>menu.flatMap(c=>(c.items||[]).map(i=>({...i,categoryId:c.id,categoryName:c.name_es}))),[menu]);
-  const filtered=allItems.filter(i=>{
-    const text=`${i.name_es||''} ${i.description_es||''}`.toLowerCase();
-    return (!normalizedQuery||text.includes(normalizedQuery))&&(activeCategory==='all'||String(i.categoryId)===String(activeCategory));
-  });
-  function toggleFavorite(id){
-    const next=favorites.includes(id)?favorites.filter(x=>x!==id):[...favorites,id];
-    setFavorites(next);saveFavorites(next);
-  }
+
+  const allItems=useMemo(()=>menu.flatMap(c=>(c.items||[]).map(i=>({...i,category_id:c.id,category_name:c.name_es}))),[menu]);
+  const popular=useMemo(()=>allItems.slice(0,6),[allItems]);
+  const normalized=query.trim().toLowerCase();
+
+  const visibleItems=useMemo(()=>allItems.filter(item=>{
+    const categoryOk=activeCategory==='all' || item.category_id===activeCategory;
+    const searchOk=!normalized || `${item.name_es||''} ${item.description_es||''}`.toLowerCase().includes(normalized);
+    return categoryOk&&searchOk;
+  }),[allItems,activeCategory,normalized]);
+
   return <main className="page home-page">
-    <section className="hero pro-hero">
-      <div className="hero-content">
-        <span className="eyebrow">Sabor auténtico · entrega rápida</span>
-        <h1>Tu comida favorita,<br/><em>sin complicaciones.</em></h1>
-        <p>Haz tu pedido en pocos pasos y sigue la entrega en tiempo real.</p>
-        <div className="hero-badges"><span>⚡ 20–35 min</span><span>📍 Salamanca</span><span>★ 4.9</span></div>
+    <section className="home-hero">
+      <div className="hero-copy">
+        <span className="hero-badge">Entrega rápida en Salamanca</span>
+        <h1>Tu kebab favorito, recién preparado</h1>
+        <p>Haz tu pedido en pocos pasos y sigue al repartidor en tiempo real.</p>
+        <div className="hero-trust">
+          <span>✓ Preparado al momento</span>
+          <span>✓ Pago seguro</span>
+          <span>✓ Seguimiento en vivo</span>
+        </div>
       </div>
-      <div className="hero-food"><span>🌯</span><i></i></div>
+      <div className="hero-visual">
+        <div className="hero-food-orbit">🌯</div>
+        <span className="hero-price-bubble">Desde 5,95 €</span>
+      </div>
     </section>
 
-    <section className="smart-search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="¿Qué te apetece hoy?"/>{query&&<button onClick={()=>setQuery('')}>×</button>}</section>
+    {customer&&<section className="welcome-strip">
+      <div>
+        <small>Hola, {customer.name||'cliente'} 👋</small>
+        <b>¿Repetimos tu pedido favorito?</b>
+      </div>
+      <button onClick={onGoOrders}>Ver pedidos</button>
+    </section>}
 
-    <div className="category-chips"><button className={activeCategory==='all'?'active':''} onClick={()=>setActiveCategory('all')}>Todo</button>{menu.map(c=><button key={c.id} className={String(activeCategory)===String(c.id)?'active':''} onClick={()=>setActiveCategory(c.id)}>{c.name_es}</button>)}</div>
+    <div className="smart-search">
+      <span>⌕</span>
+      <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar kebab, durum, bebida..."/>
+      {query&&<button onClick={()=>setQuery('')}>×</button>}
+    </div>
 
-    <div className="section-heading"><div><small>MENÚ</small><h2>{activeCategory==='all'?'Nuestros favoritos':menu.find(c=>String(c.id)===String(activeCategory))?.name_es}</h2></div><span>{filtered.length} productos</span></div>
-    {filtered.length?<div className="product-grid pro-grid">{filtered.map(i=><ProductCard key={i.id} item={i} onAdd={onAdd} isFavorite={favorites.includes(i.id)} onFavorite={toggleFavorite}/>)}</div>:<div className="empty-state">No encontramos productos con esa búsqueda.</div>}
-    <ReviewsStrip reviews={reviews}/>
+    <section className="category-strip-wrap">
+      <div className="category-strip">
+        <button className={activeCategory==='all'?'active':''} onClick={()=>setActiveCategory('all')}>
+          <span>✨</span><small>Todo</small>
+        </button>
+        {menu.map(cat=><button key={cat.id} className={activeCategory===cat.id?'active':''} onClick={()=>setActiveCategory(cat.id)}>
+          <span>{cat.name_es?.toLowerCase().includes('beb')?'🥤':'🥙'}</span>
+          <small>{cat.name_es}</small>
+        </button>)}
+      </div>
+    </section>
+
+
+    {!isOnline&&<section className="offline-banner">
+      <span>📶</span>
+      <div><b>Modo sin conexión</b><small>Mostramos el último menú guardado. Algunas acciones pueden no estar disponibles.</small></div>
+    </section>}
+
+    {!query&&activeCategory==='all'&&recentItems.length>0&&<section className="content-section">
+      <div className="section-heading">
+        <div><small>Continúa donde estabas</small><h2>Vistos recientemente</h2></div>
+        <span className="section-pill">Recientes</span>
+      </div>
+      <div className="horizontal-product-strip">
+        {recentItems.slice(0,6).map((item,index)=><ProductCard
+          key={`recent-${item.id}`}
+          item={item}
+          index={index}
+          onAdd={onAdd}
+          isFavorite={favorites.includes(item.id)}
+          onToggleFavorite={onToggleFavorite}
+          onView={onView}
+        />)}
+      </div>
+    </section>}
+
+    {!query&&activeCategory==='all'&&popular.length>0&&<section className="content-section">
+      <div className="section-heading">
+        <div><small>Lo más pedido</small><h2>Favoritos de nuestros clientes</h2></div>
+        <span className="section-pill">Popular</span>
+      </div>
+      <div className="product-grid">
+        {popular.map((item,index)=><ProductCard
+          key={`popular-${item.id}`}
+          item={item}
+          index={index}
+          onAdd={onAdd}
+          isFavorite={favorites.includes(item.id)}
+          onToggleFavorite={onToggleFavorite}
+          onView={onView}
+        />)}
+      </div>
+    </section>}
+
+    <section className="content-section">
+      <div className="section-heading">
+        <div>
+          <small>{activeCategory==='all'?'Nuestro menú':'Categoría seleccionada'}</small>
+          <h2>{activeCategory==='all'?'Todos los productos':menu.find(c=>c.id===activeCategory)?.name_es}</h2>
+        </div>
+        <span className="section-count">{visibleItems.length}</span>
+      </div>
+
+      {loading?<div className="skeleton-grid">{[1,2,3,4].map(x=><div className="skeleton-card" key={x}><div></div><span></span><span></span></div>)}</div>:null}
+
+      {!loading&&visibleItems.length===0?<div className="empty-state pro-empty">
+        <span>🔎</span><h3>No encontramos resultados</h3><p>Prueba con otro nombre o categoría.</p>
+      </div>:null}
+
+      {!loading&&<div className="product-grid">
+        {visibleItems.map((item,index)=><ProductCard
+          key={item.id}
+          item={item}
+          index={index}
+          onAdd={onAdd}
+          isFavorite={favorites.includes(item.id)}
+          onToggleFavorite={onToggleFavorite}
+          onView={onView}
+        />)}
+      </div>}
+    </section>
   </main>;
 }
 
-function CartPage({cart,setCart,onCheckout}){
+function CartPage({cart,setCart,onCheckout,suggestions,onAdd}){
   const subtotal=cart.reduce((s,x)=>s+Number(x.price)*x.qty,0);
   const change=(id,d)=>setCart(c=>c.map(x=>x.id===id?{...x,qty:Math.max(0,x.qty+d)}:x).filter(x=>x.qty>0));
-  return <main className="page">
-    <h1>Tu cesta</h1>
-    {!cart.length && <div className="empty-state">La cesta está vacía.</div>}
-    {cart.map(x=><div className="cart-line" key={x.id}>
-      <div><b>{x.name_es}</b><small>{money(x.price)} × {x.qty}</small></div>
-      <div className="qty"><button onClick={()=>change(x.id,-1)}>−</button><span>{x.qty}</span><button onClick={()=>change(x.id,1)}>+</button></div>
-    </div>)}
-    <div className="total-row"><span>Subtotal</span><b>{money(subtotal)}</b></div>
-    <button className="primary wide" disabled={!cart.length} onClick={onCheckout}>Continuar pedido</button>
-  </main>
+  return <main className="page cart-page-pro">
+    <div className="page-title-pro">
+      <div><small>Tu selección</small><h1>Cesta</h1></div>
+      {cart.length?<span>{cart.reduce((s,x)=>s+x.qty,0)} productos</span>:null}
+    </div>
+    {!cart.length&&<div className="empty-state pro-empty"><span>🛒</span><h3>Tu cesta está vacía</h3><p>Añade algo delicioso del menú.</p></div>}
+    <div className="cart-list-pro">
+      {cart.map(x=><div className="cart-line pro-cart-line" key={x.id}>
+        <div className="cart-thumb">{x.image_url?<img src={x.image_url} alt={x.name_es}/>:<span>🥙</span>}</div>
+        <div className="cart-main"><b>{x.name_es}</b><small>{money(x.price)} cada uno</small></div>
+        <div className="qty"><button onClick={()=>change(x.id,-1)}>−</button><span>{x.qty}</span><button onClick={()=>change(x.id,1)}>+</button></div>
+      </div>)}
+    </div>
+
+    {cart.length&&suggestions?.length>0?<section className="cart-suggestions">
+      <div className="section-heading compact">
+        <div><small>Puede gustarte</small><h2>Completa tu pedido</h2></div>
+      </div>
+      <div className="cart-suggestion-list">
+        {suggestions.slice(0,4).map(item=><article key={item.id}>
+          <div className="cart-suggestion-image">
+            {item.image_url?<img src={item.image_url} alt={item.name_es}/>:<span>🥤</span>}
+          </div>
+          <div><b>{item.name_es}</b><small>{money(item.price)}</small></div>
+          <button onClick={()=>onAdd(item)}>+</button>
+        </article>)}
+      </div>
+    </section>:null}
+
+    {cart.length?<section className="cart-summary-card">
+      <div><span>Subtotal</span><b>{money(subtotal)}</b></div>
+      <div><span>Entrega</span><small>Se calcula al finalizar</small></div>
+      <div className="cart-total"><span>Total provisional</span><b>{money(subtotal)}</b></div>
+      <button className="primary wide checkout-main-button" onClick={onCheckout}>Continuar pedido <span>→</span></button>
+    </section>:null}
+  </main>;
 }
 
 function OtpModal({phone,onVerified,onClose,setToast}){
@@ -192,9 +465,9 @@ function OtpModal({phone,onVerified,onClose,setToast}){
 }
 
 
-function CheckoutPage({cart,customer,onSuccess,setToast,onBack}){
+function CheckoutPage({cart,customer,onSuccess,setToast,onBack,savedAddresses,onAddressUsed}){
   const [form,setForm]=useState({
-    name:customer?.name||'', address:customer?.default_address||'', floor:'', note:'',
+    name:customer?.name||'', address:savedAddresses?.[0]||customer?.default_address||'', floor:'', note:'',
     delivery_type:'delivery', payment_method:'cash'
   });
   const [loading,setLoading]=useState(false);
@@ -379,6 +652,9 @@ function CheckoutPage({cart,customer,onSuccess,setToast,onBack}){
 
       const r=await axios.post(`${API_BASE}/orders/`,payload);
       localStorage.setItem(LAST_ORDER_KEY,r.data.order.order_code);
+      if(form.delivery_type==='delivery'&&form.address.trim()){
+        onAddressUsed?.(form.address.trim());
+      }
       setToast('');
       onSuccess(r.data.order);
     }catch(e){
@@ -415,6 +691,34 @@ function CheckoutPage({cart,customer,onSuccess,setToast,onBack}){
     </div>
 
     {form.delivery_type==='delivery'&&<>
+
+    {form.delivery_type==='delivery'&&savedAddresses?.length>0&&
+      <section className="saved-addresses-checkout">
+        <div className="saved-addresses-title">
+          <span>Direcciones rápidas</span>
+          <small>Toca para usar</small>
+        </div>
+        <div className="saved-address-chips">
+          {savedAddresses.slice(0,4).map((address,index)=>
+            <button
+              type="button"
+              key={`${address}-${index}`}
+              className={form.address===address?'active':''}
+              onClick={()=>{
+                setForm(current=>({...current,address}));
+                setSelectedPoint(null);
+                setAddressResults([]);
+                setAddressTouched(false);
+              }}
+            >
+              <span>📍</span>
+              <small>{address}</small>
+            </button>
+          )}
+        </div>
+      </section>
+    }
+
       <label>Dirección</label>
       <div className="address-autocomplete">
         <input
@@ -539,119 +843,585 @@ function TrackingMap({order}){
   return <><div className="map" ref={ref}></div>{!hasRider&&<div className="notice">Esperando la ubicación GPS del repartidor.</div>}</>;
 }
 
-function StarInput({value,onChange,label}){
-  return <div className="rating-row"><span>{label}</span><div>{[1,2,3,4,5].map(n=><button type="button" key={n} className={n<=value?'active':''} onClick={()=>onChange(n)}>★</button>)}</div></div>;
-}
-
-function ReviewModal({order,customer,onClose,onDone,setToast}){
-  const [form,setForm]=useState({rating:5,food_rating:5,delivery_rating:5,packaging_rating:5,rider_rating:5,would_recommend:true,comment:''});
+function OrdersPage({customer,setToast,onReorder,onOrderStatusUpdate,focusOrderCode}){
+  const [orders,setOrders]=useState([]);
+  const [selected,setSelected]=useState(null);
   const [loading,setLoading]=useState(false);
-  async function submit(){
-    if(form.comment.trim().length<3)return setToast('Escribe una opinión breve.');
-    setLoading(true);
-    try{
-      await axios.post(`${API_BASE}/reviews/`,{order_code:order.order_code,phone:customer.phone,...form});
-      setToast('¡Gracias! Tu opinión se ha enviado.');
-      onDone?.();onClose();
-    }catch(e){setToast(e?.response?.data?.detail||'No se pudo enviar la opinión.');}
-    finally{setLoading(false);}
-  }
-  return <div className="overlay review-overlay"><section className="modal review-modal">
-    <button className="close" onClick={onClose}>×</button>
-    <div className="review-hero"><span>✨</span><h2>¿Qué tal tu pedido?</h2><p>{order.order_code}</p></div>
-    <StarInput label="Experiencia general" value={form.rating} onChange={v=>setForm({...form,rating:v})}/>
-    <StarInput label="Calidad de la comida" value={form.food_rating} onChange={v=>setForm({...form,food_rating:v})}/>
-    <StarInput label="Presentación y embalaje" value={form.packaging_rating} onChange={v=>setForm({...form,packaging_rating:v})}/>
-    {order.delivery_type==='delivery'&&<><StarInput label="Rapidez de entrega" value={form.delivery_rating} onChange={v=>setForm({...form,delivery_rating:v})}/><StarInput label="Atención del repartidor" value={form.rider_rating} onChange={v=>setForm({...form,rider_rating:v})}/></>}
-    <textarea value={form.comment} onChange={e=>setForm({...form,comment:e.target.value})} placeholder="Cuéntanos qué te gustó o qué podemos mejorar..." maxLength={1200}/>
-    <label className="recommend-switch"><input type="checkbox" checked={form.would_recommend} onChange={e=>setForm({...form,would_recommend:e.target.checked})}/><span>Recomendaría Casa de Kebab Turco</span></label>
-    <button className="primary wide animated-submit" onClick={submit} disabled={loading}>{loading?'Enviando...':'Enviar mi opinión'}</button>
-    <a className="google-review-link" href={GOOGLE_MAPS_URL} target="_blank" rel="noreferrer">Abrir Casa de Kebab en Google Maps</a>
-    <small className="privacy-note">La publicación en Google nunca es automática.</small>
-  </section></div>;
-}
 
-function OrdersPage({customer,setToast}){
-  const [orders,setOrders]=useState([]),[selected,setSelected]=useState(null),[loading,setLoading]=useState(false);
-  const [reviewOrder,setReviewOrder]=useState(null);
   async function load(){
     if(!customer) return;
     setLoading(true);
     try{
       const r=await axios.get(`${API_BASE}/customers/orders/`,{params:{phone:customer.phone}});
       const rows=Array.isArray(r.data)?r.data:(r.data.orders||[]);
-      setOrders(rows); if(!selected&&rows[0]) setSelected(rows[0]);
-    }catch(e){setToast('No se pudieron cargar los pedidos.');}
-    finally{setLoading(false);}
+      const previous=getOrderStatusCache();
+      const nextCache={...previous};
+
+      rows.forEach(order=>{
+        const oldStatus=previous[order.order_code];
+        if(oldStatus&&oldStatus!==order.status){
+          onOrderStatusUpdate?.(order,oldStatus);
+        }
+        nextCache[order.order_code]=order.status;
+      });
+      saveOrderStatusCache(nextCache);
+
+      setOrders(rows);
+      setSelected(current=>{
+        if(focusOrderCode){
+          return rows.find(row=>row.order_code===focusOrderCode)||current||rows[0]||null;
+        }
+        if(current){
+          return rows.find(row=>row.order_code===current.order_code)||rows[0]||null;
+        }
+        return rows[0]||null;
+      });
+    }catch(e){
+      setToast('No se pudieron cargar los pedidos.');
+    }finally{
+      setLoading(false);
+    }
   }
-  useEffect(()=>{load(); const id=setInterval(load,5000); return()=>clearInterval(id);},[customer?.phone]);
+
+  useEffect(()=>{
+    load();
+    const id=setInterval(load,5000);
+    return()=>clearInterval(id);
+  },[customer?.phone]);
+
   const order=selected;
   const idx=order?statusSteps.findIndex(x=>x[0]===order.status):-1;
-  return <main className="page">
-    <div className="page-title"><h1>Mis pedidos</h1><button className="ghost" onClick={load}>Actualizar</button></div>
-    {loading&&!orders.length&&<p>Cargando...</p>}
-    {!orders.length&&!loading&&<div className="empty-state">No hay pedidos todavía.</div>}
-    <div className="order-tabs">{orders.map(o=><button key={o.order_code} className={order?.order_code===o.order_code?'active':''} onClick={()=>setSelected(o)}>{o.order_code}</button>)}</div>
-    {order&&<>
-      <div className="timeline">{statusSteps.map(([s,label],i)=><div key={s} className={i<=idx?'done':''}><span>{i<idx?'✓':i+1}</span><small>{label}</small></div>)}</div>
-      <div className="tracking-card pro-tracking-card">
-        <div className="tracking-head"><div><small>ESTADO DEL PEDIDO</small><h2>{order.order_code}</h2></div><b>{money(order.total)}</b></div>
-        <p>{order.address||'Recogida en tienda'}</p>
-        <TrackingMap order={order}/>
-        {order.status==='delivered'&&<button className="review-order-button" onClick={()=>setReviewOrder(order)}>★ Valorar este pedido</button>}
-      </div>
-    </>}
-    {reviewOrder&&<ReviewModal order={reviewOrder} customer={customer} onClose={()=>setReviewOrder(null)} onDone={load} setToast={setToast}/>}
-  </main>;
-}
+  const activeOrders=orders.filter(o=>!['delivered','cancelled'].includes(o.status));
+  const previousOrders=orders.filter(o=>['delivered','cancelled'].includes(o.status));
 
-function AccountPage({customer,onLogout}){
-  return <main className="page account-page">
-    <section className="account-hero"><div className="avatar">{(customer?.name||customer?.phone||'C')[0]}</div><div><small>MI CUENTA</small><h1>{customer?.name||'Cliente'}</h1><p>{customer?.phone}</p></div></section>
-    <div className="account-grid">
-      <article><span>📍</span><div><small>Dirección habitual</small><b>{customer?.default_address||'Aún no guardada'}</b></div></article>
-      <article><span>📦</span><div><small>Pedidos realizados</small><b>{customer?.total_orders||0}</b></div></article>
-      <article><span>✉️</span><div><small>Email</small><b>{customer?.email||'Sin email'}</b></div></article>
+  return <main className="page orders-page-pro">
+    <div className="page-title-pro orders-title">
+      <div><small>Seguimiento e historial</small><h1>Mis pedidos</h1></div>
+      <button className="ghost refresh-orders" onClick={load}>{loading?'...':'↻ Actualizar'}</button>
     </div>
-    <div className="account-card pro-account-card"><h2>Ayuda y restaurante</h2><a href="tel:+34613473564">☎ Llamar al restaurante</a><a href={GOOGLE_MAPS_URL} target="_blank" rel="noreferrer">📍 Abrir en Google Maps</a><p>{RESTAURANT_ADDRESS}</p><button className="danger wide" onClick={onLogout}>Cerrar sesión</button></div>
+
+    {loading&&!orders.length&&<div className="orders-skeleton">
+      {[1,2,3].map(x=><div key={x}></div>)}
+    </div>}
+
+    {!orders.length&&!loading&&<div className="empty-state pro-empty">
+      <span>🧾</span><h3>Aún no tienes pedidos</h3><p>Cuando hagas tu primer pedido aparecerá aquí.</p>
+    </div>}
+
+    {activeOrders.length>0&&<section className="active-order-banner">
+      <div><span>● Pedido activo</span><b>{activeOrders[0].order_code}</b><small>{activeOrders[0].address||'Recogida en tienda'}</small></div>
+      <button onClick={()=>setSelected(activeOrders[0])}>Ver seguimiento</button>
+    </section>}
+
+    {orders.length>0&&<div className="order-card-strip">
+      {orders.map(o=><button
+        key={o.order_code}
+        className={`order-history-card ${order?.order_code===o.order_code?'active':''}`}
+        onClick={()=>setSelected(o)}
+      >
+        <div>
+          <b>{o.order_code}</b>
+          <span>{money(o.total)}</span>
+        </div>
+        <small>{new Date(o.created_at||Date.now()).toLocaleDateString('es-ES')}</small>
+        <em>{(statusSteps.find(x=>x[0]===o.status)||[null,o.status])[1]}</em>
+      </button>)}
+    </div>}
+
+    {order&&<>
+      <section className="tracking-overview-card">
+        <div className="tracking-overview-head">
+          <div><small>Pedido seleccionado</small><h2>{order.order_code}</h2><p>{order.address||'Recogida en tienda'}</p></div>
+          <strong>{money(order.total)}</strong>
+        </div>
+
+        {!['delivered','cancelled'].includes(order.status)&&
+          <div className="timeline pro-timeline">
+            {statusSteps.map(([s,label],i)=><div key={s} className={i<=idx?'done':''}>
+              <span>{i<idx?'✓':i+1}</span><small>{label}</small>
+            </div>)}
+          </div>}
+
+        {!['delivered','cancelled'].includes(order.status)&&<TrackingMap order={order}/>}
+
+        <div className="order-detail-list">
+          {(order.items||[]).map((item,index)=><div key={item.id||index}>
+            <span>{item.quantity} × {item.name_snapshot||item.name_es||'Producto'}</span>
+            <b>{money(item.total||Number(item.price_snapshot||0)*Number(item.quantity||1))}</b>
+          </div>)}
+        </div>
+
+        <div className="order-actions-pro">
+          <button className="primary" onClick={()=>onReorder(order)}>Volver a pedir</button>
+          {!['delivered','cancelled'].includes(order.status)&&order.customer_phone&&
+            <a className="secondary" href={`tel:${order.customer_phone}`}>Ayuda</a>}
+        </div>
+      </section>
+    </>}
+
+    {previousOrders.length>0&&<section className="previous-orders-summary">
+      <small>Pedidos completados</small>
+      <b>{previousOrders.length}</b>
+      <span>Disponibles para volver a pedir</span>
+    </section>}
   </main>;
 }
 
-function BottomNav({tab,setTab,cartCount}){
-  const items=[['menu','🍽️','Menú'],['cart','🛒',`Cesta${cartCount?` (${cartCount})`:''}`],['orders','📍','Pedidos'],['account','👤','Cuenta']];
-  return <nav className="bottom-nav">{items.map(([id,icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}><span>{icon}</span><small>{label}</small></button>)}</nav>;
+
+function NotificationCenter({items,onReadAll,onClear,onOpenOrder}){
+  return <main className="page notifications-page">
+    <div className="page-title-pro notification-page-title">
+      <div><small>Actualizaciones de tus pedidos</small><h1>Notificaciones</h1></div>
+      <div className="notification-tools">
+        <button className="ghost" onClick={onReadAll}>Marcar leídas</button>
+        <button className="ghost danger-ghost" onClick={onClear}>Limpiar</button>
+      </div>
+    </div>
+
+    {!items.length?<div className="empty-state pro-empty">
+      <span>🔔</span><h3>No tienes notificaciones</h3>
+      <p>Las actualizaciones de tus pedidos aparecerán aquí.</p>
+    </div>:null}
+
+    <div className="notification-list">
+      {items.map(item=><article key={item.id} className={item.read?'read':'unread'}>
+        <button className="notification-main" onClick={()=>onOpenOrder(item)}>
+          <div className={`notification-icon status-${item.status||'pending'}`}>{
+            item.status==='delivered'?'✓':
+            item.status==='out_for_delivery'?'🛵':
+            item.status==='preparing'?'🍳':
+            item.status==='ready'?'📦':'🔔'
+          }</div>
+          <div>
+            <div className="notification-line">
+              <b>{item.title}</b>
+              {!item.read?<i></i>:null}
+            </div>
+            <p>{item.message}</p>
+            <small>{new Date(item.created_at).toLocaleString('es-ES')}</small>
+          </div>
+        </button>
+      </article>)}
+    </div>
+  </main>;
+}
+
+function AccountPage({
+  customer,onLogout,onGoOrders,menu,favorites,onToggleFavorite,onAdd,
+  savedAddresses,onDeleteAddress,onUseAddress
+}){
+  const allItems=menu.flatMap(category=>category.items||[]);
+  const favoriteItems=allItems.filter(item=>favorites.includes(item.id));
+
+  return <main className="page account-page-pro">
+    <section className="profile-hero-card">
+      <div className="avatar">{(customer?.name||customer?.phone||'C')[0]}</div>
+      <div><small>Mi cuenta</small><h1>{customer?.name||'Cliente'}</h1><p>{customer?.phone}</p></div>
+    </section>
+
+    <section className="account-grid-pro">
+      <button onClick={onGoOrders}><span>🧾</span><b>Mis pedidos</b><small>Historial y seguimiento</small></button>
+      <button onClick={()=>document.getElementById('saved-addresses-section')?.scrollIntoView({behavior:'smooth'})}>
+        <span>📍</span><b>Direcciones</b><small>{savedAddresses.length?`${savedAddresses.length} guardadas`:'Sin direcciones guardadas'}</small>
+      </button>
+      <button onClick={()=>document.getElementById('favorites-section')?.scrollIntoView({behavior:'smooth'})}>
+        <span>♥</span><b>Favoritos</b><small>{favoriteItems.length?`${favoriteItems.length} productos`:'Todavía vacío'}</small>
+      </button>
+      <button><span>🎁</span><b>Ofertas</b><small>Promociones disponibles</small></button>
+    </section>
+
+    <section className="account-details-card">
+      <div><small>Teléfono</small><b>{customer?.phone}</b></div>
+      <div><small>Email</small><b>{customer?.email||'Sin email'}</b></div>
+      <div><small>Dirección principal</small><b>{customer?.default_address||'Sin dirección guardada'}</b></div>
+    </section>
+
+    <section className="account-section-card" id="saved-addresses-section">
+      <div className="account-section-title">
+        <div><small>Entrega más rápida</small><h2>Direcciones guardadas</h2></div>
+        <span>{savedAddresses.length}</span>
+      </div>
+      {!savedAddresses.length?<p className="account-muted">Las direcciones usadas al pedir aparecerán aquí automáticamente.</p>:null}
+      <div className="saved-address-list">
+        {savedAddresses.map((address,index)=><article key={`${address}-${index}`}>
+          <button className="saved-address-main" onClick={()=>onUseAddress(address)}>
+            <span>📍</span><div><b>{index===0?'Dirección reciente':`Dirección ${index+1}`}</b><small>{address}</small></div>
+          </button>
+          <button className="saved-address-delete" onClick={()=>onDeleteAddress(address)}>×</button>
+        </article>)}
+      </div>
+    </section>
+
+    <section className="account-section-card" id="favorites-section">
+      <div className="account-section-title">
+        <div><small>Acceso rápido</small><h2>Mis favoritos</h2></div>
+        <span>{favoriteItems.length}</span>
+      </div>
+      {!favoriteItems.length?<p className="account-muted">Pulsa el corazón de un producto para guardarlo aquí.</p>:null}
+      <div className="favorite-account-list">
+        {favoriteItems.map(item=><article key={item.id}>
+          <div className="favorite-account-image">
+            {item.image_url?<img src={item.image_url} alt={item.name_es}/>:<span>🥙</span>}
+          </div>
+          <div><b>{item.name_es}</b><small>{money(item.price)}</small></div>
+          <button onClick={()=>onAdd(item)}>+</button>
+          <button className="remove-favorite" onClick={()=>onToggleFavorite(item.id)}>♥</button>
+        </article>)}
+      </div>
+    </section>
+
+    <button className="danger wide logout-pro" onClick={onLogout}>Cerrar sesión</button>
+  </main>;
+}
+
+function BottomNav({tab,setTab,cartCount,notificationCount}){
+  const items=[
+    ['menu','⌂','Inicio'],
+    ['cart','🛒','Cesta'],
+    ['orders','📍','Pedidos'],
+    ['notifications','🔔','Avisos'],
+    ['account','👤','Cuenta']
+  ];
+  return <nav className="bottom-nav pro-bottom-nav five-items">{items.map(([id,icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}>
+    <span>{icon}</span><small>{label}</small>
+    {id==='cart'&&cartCount>0?<b>{cartCount}</b>:null}
+    {id==='notifications'&&notificationCount>0?<b>{notificationCount}</b>:null}
+  </button>)}</nav>;
 }
 
 function App(){
   const [tab,setTab]=useState('menu');
   const [menu,setMenu]=useState(fallbackMenu);
-  const [cart,setCart]=useState([]);
+  const [cart,setCart]=useState(getSavedCart());
+  const [favorites,setFavorites]=useState(getFavorites());
   const [customer,setCustomer]=useState(getCustomer());
   const [otp,setOtp]=useState(false);
   const [checkout,setCheckout]=useState(false);
   const [receipt,setReceipt]=useState(null);
   const [toast,setToast]=useState('');
-  const [reviews,setReviews]=useState([]);
+  const [menuLoading,setMenuLoading]=useState(true);
+  const [cartPulse,setCartPulse]=useState(false);
+  const [savedAddresses,setSavedAddresses]=useState(()=>{
+    const local=getSavedAddresses();
+    const initial=customer?.default_address?.trim();
+    return initial&&!local.includes(initial)?[initial,...local]:local;
+  });
+  const [preferredAddress,setPreferredAddress]=useState('');
+  const [recentItems,setRecentItems]=useState(getRecentItems());
+  const [isOnline,setIsOnline]=useState(navigator.onLine);
+  const [notifications,setNotifications]=useState(getNotifications());
+  const [focusOrderCode,setFocusOrderCode]=useState('');
+  const [pushReady,setPushReady]=useState(false);
 
-  useEffect(()=>{axios.get(`${API_BASE}/menu/`).then(r=>{if(Array.isArray(r.data)&&r.data.length)setMenu(r.data)}).catch(()=>{});axios.get(`${API_BASE}/reviews/public/`).then(r=>setReviews(Array.isArray(r.data)?r.data:(r.data.reviews||[]))).catch(()=>{});},[]);
-  function add(item){setCart(c=>{const x=c.find(y=>y.id===item.id);return x?c.map(y=>y.id===item.id?{...y,qty:y.qty+1}:y):[...c,{...item,qty:1}]});setToast('Añadido a la cesta.');}
+  useEffect(()=>{
+    const cached=getCachedMenu();
+    if(Array.isArray(cached)&&cached.length)setMenu(cached);
+
+    axios.get(`${API_BASE}/menu/`)
+      .then(r=>{
+        if(Array.isArray(r.data)&&r.data.length){
+          setMenu(r.data);
+          saveCachedMenu(r.data);
+        }
+      })
+      .catch(()=>{})
+      .finally(()=>setMenuLoading(false));
+  },[]);
+
+  useEffect(()=>{
+    const online=()=>setIsOnline(true);
+    const offline=()=>setIsOnline(false);
+    window.addEventListener('online',online);
+    window.addEventListener('offline',offline);
+    return()=>{
+      window.removeEventListener('online',online);
+      window.removeEventListener('offline',offline);
+    };
+  },[]);
+
+  useEffect(()=>{saveCart(cart)},[cart]);
+  useEffect(()=>{saveFavorites(favorites)},[favorites]);
+  useEffect(()=>{saveSavedAddresses(savedAddresses)},[savedAddresses]);
+  useEffect(()=>{saveRecentItems(recentItems)},[recentItems]);
+  useEffect(()=>{saveNotifications(notifications)},[notifications]);
+  useEffect(()=>{
+    if(customer) requestLocalNotificationPermission();
+  },[customer?.phone]);
+
+  useEffect(()=>{
+    if(!customer||!Capacitor.isNativePlatform()) return;
+
+    let disposed=false;
+    const removers=[];
+
+    async function setupPush(){
+      try{
+        const current=await PushNotifications.checkPermissions();
+        let permission=current.receive;
+        if(permission!=='granted'){
+          const requested=await PushNotifications.requestPermissions();
+          permission=requested.receive;
+        }
+        if(permission!=='granted') return;
+
+        const registrationListener=await PushNotifications.addListener('registration',async token=>{
+          if(disposed) return;
+          await registerPushTokenWithBackend(customer,token.value);
+          setPushReady(true);
+        });
+        removers.push(registrationListener);
+
+        const errorListener=await PushNotifications.addListener('registrationError',error=>{
+          console.warn('Firebase registration error',error);
+          setPushReady(false);
+        });
+        removers.push(errorListener);
+
+        const receiveListener=await PushNotifications.addListener('pushNotificationReceived',notification=>{
+          const data=notification?.data||{};
+          const item={
+            id:`fcm-${data.order_code||Date.now()}-${Date.now()}`,
+            order_code:data.order_code||'',
+            status:data.status||'pending',
+            title:notification.title||'Casa de Kebab Turco',
+            message:notification.body||'Tienes una nueva actualización.',
+            created_at:new Date().toISOString(),
+            read:false
+          };
+          setNotifications(current=>[item,...current.filter(row=>row.id!==item.id)].slice(0,50));
+          setToast(item.message);
+        });
+        removers.push(receiveListener);
+
+        const actionListener=await PushNotifications.addListener('pushNotificationActionPerformed',action=>{
+          const data=action?.notification?.data||{};
+          const orderCode=data.order_code||'';
+          if(orderCode){
+            setFocusOrderCode(orderCode);
+            setTab('orders');
+          }else{
+            setTab('notifications');
+          }
+        });
+        removers.push(actionListener);
+
+        await PushNotifications.register();
+      }catch(error){
+        console.warn('Push setup failed',error);
+        setPushReady(false);
+      }
+    }
+
+    setupPush();
+
+    return()=>{
+      disposed=true;
+      removers.forEach(listener=>{
+        try{ listener.remove(); }catch{}
+      });
+    };
+  },[customer?.phone]);
+
+
+
+
+  async function handleOrderStatusUpdate(order,oldStatus){
+    const item={
+      id:`${order.order_code}-${order.status}-${Date.now()}`,
+      order_code:order.order_code,
+      status:order.status,
+      title:`${order.order_code} · ${statusLabel(order.status)}`,
+      message:notificationText(order),
+      created_at:new Date().toISOString(),
+      read:false
+    };
+    setNotifications(current=>[item,...current].slice(0,50));
+    await showLocalOrderNotification(order);
+    setToast(notificationText(order));
+  }
+
+  function markAllNotificationsRead(){
+    setNotifications(current=>current.map(item=>({...item,read:true})));
+  }
+
+  function clearNotifications(){
+    setNotifications([]);
+  }
+
+  function openNotification(item){
+    setNotifications(current=>current.map(row=>row.id===item.id?{...row,read:true}:row));
+    setFocusOrderCode(item.order_code||'');
+    setTab('orders');
+  }
+
+  function rememberViewedItem(item){
+    if(!item?.id) return;
+    setRecentItems(current=>[
+      item,
+      ...current.filter(row=>row.id!==item.id),
+    ].slice(0,10));
+  }
+
+  const smartSuggestions=useMemo(()=>{
+    const allItems=menu.flatMap(category=>category.items||[]);
+    const cartIds=new Set(cart.map(item=>item.id));
+    const beverageKeywords=['bebida','cola','fanta','agua','sprite','refresco'];
+    const sideKeywords=['patata','salsa','postre'];
+
+    const ranked=allItems
+      .filter(item=>!cartIds.has(item.id))
+      .map(item=>{
+        const text=`${item.name_es||''} ${item.description_es||''}`.toLowerCase();
+        let score=0;
+        if(beverageKeywords.some(k=>text.includes(k))) score+=3;
+        if(sideKeywords.some(k=>text.includes(k))) score+=2;
+        if(favorites.includes(item.id)) score+=2;
+        if(recentItems.some(row=>row.id===item.id)) score+=1;
+        return {...item,_score:score};
+      })
+      .sort((a,b)=>b._score-a._score || Number(a.price)-Number(b.price));
+
+    return ranked.slice(0,6);
+  },[menu,cart,favorites,recentItems]);
+
+  function rememberAddress(address){
+    const clean=String(address||'').trim();
+    if(!clean) return;
+    setSavedAddresses(current=>[clean,...current.filter(item=>item!==clean)].slice(0,6));
+  }
+
+  function deleteSavedAddress(address){
+    setSavedAddresses(current=>current.filter(item=>item!==address));
+  }
+
+  function useSavedAddress(address){
+    setPreferredAddress(address);
+    setTab('cart');
+    setToast('Dirección preparada para tu próximo pedido.');
+  }
+
+  function reorder(order){
+    const allItems=menu.flatMap(category=>category.items||[]);
+    const rebuilt=(order.items||[]).map(orderItem=>{
+      const menuItemId=Number(
+        orderItem.menu_item_id ??
+        orderItem.menu_item ??
+        orderItem.menu_item_data?.id ??
+        0
+      );
+      const match=allItems.find(item=>Number(item.id)===menuItemId) ||
+        allItems.find(item=>(item.name_es||'').trim().toLowerCase()===(orderItem.name_snapshot||'').trim().toLowerCase());
+
+      if(!match) return null;
+      return {...match,qty:Number(orderItem.quantity||1)};
+    }).filter(Boolean);
+
+    if(!rebuilt.length){
+      setToast('Los productos de este pedido ya no están disponibles en el menú.');
+      return;
+    }
+
+    setCart(rebuilt);
+    if(order.address) rememberAddress(order.address);
+    setTab('cart');
+    setToast('Pedido anterior añadido a la cesta.');
+  }
+
+  function toggleFavorite(id){
+    setFavorites(current=>current.includes(id)?current.filter(x=>x!==id):[...current,id]);
+  }
+
+  function add(item){
+    setCart(current=>{
+      const existing=current.find(x=>x.id===item.id);
+      return existing
+        ? current.map(x=>x.id===item.id?{...x,qty:x.qty+1}:x)
+        : [...current,{...item,qty:1}];
+    });
+    setCartPulse(true);
+    setTimeout(()=>setCartPulse(false),500);
+    setToast(`${item.name_es} añadido a la cesta.`);
+  }
+
   function beginCheckout(){if(!customer)return setOtp(true);setCheckout(true);}
   function verified(c){setCustomer(c);setOtp(false);setCheckout(true);}
   function success(order){setReceipt(order);setCheckout(false);setCart([]);}
-  function logout(){clearCustomer();setCustomer(null);setTab('menu');}
+  async function logout(){
+    await unregisterPushTokenFromBackend(customer);
+    clearCustomer();setCustomer(null);setTab('menu');
+  }
   const count=cart.reduce((s,x)=>s+x.qty,0);
+  const cartTotal=cart.reduce((s,x)=>s+Number(x.price)*x.qty,0);
 
-  let body=<MenuPage menu={menu} onAdd={add} reviews={reviews}/>;
-  if(tab==='cart') body=<CartPage cart={cart} setCart={setCart} onCheckout={beginCheckout}/>;
-  if(tab==='orders') body=customer?<OrdersPage customer={customer} setToast={setToast}/>:<main className="page"><div className="empty-state">Primero inicia sesión por SMS.</div><button className="primary wide" onClick={()=>setOtp(true)}>Entrar</button></main>;
-  if(tab==='account') body=customer?<AccountPage customer={customer} onLogout={logout}/>:<main className="page"><div className="empty-state">No has iniciado sesión.</div><button className="primary wide" onClick={()=>setOtp(true)}>Entrar por SMS</button></main>;
-  if(checkout) body=<CheckoutPage cart={cart} customer={customer} onSuccess={success} setToast={setToast} onBack={()=>setCheckout(false)}/>;
+  let body=<MenuPage
+    menu={menu}
+    onAdd={add}
+    favorites={favorites}
+    onToggleFavorite={toggleFavorite}
+    onView={rememberViewedItem}
+    customer={customer}
+    onGoOrders={()=>setTab('orders')}
+    loading={menuLoading}
+    recentItems={recentItems}
+    isOnline={isOnline}
+  />;
+  if(tab==='cart') body=<CartPage
+    cart={cart}
+    setCart={setCart}
+    onCheckout={beginCheckout}
+    suggestions={smartSuggestions}
+    onAdd={add}
+  />;
+  if(tab==='orders') body=customer?<OrdersPage
+    customer={customer}
+    setToast={setToast}
+    onReorder={reorder}
+    onOrderStatusUpdate={handleOrderStatusUpdate}
+    focusOrderCode={focusOrderCode}
+  />:<main className="page"><div className="empty-state pro-empty"><span>🔐</span><h3>Inicia sesión</h3><p>Necesitamos verificar tu teléfono para mostrar tus pedidos.</p></div><button className="primary wide" onClick={()=>setOtp(true)}>Entrar por SMS</button></main>;
+  if(tab==='notifications') body=<NotificationCenter
+    items={notifications}
+    onReadAll={markAllNotificationsRead}
+    onClear={clearNotifications}
+    onOpenOrder={openNotification}
+  />;
+  if(tab==='account') body=customer?<AccountPage
+    customer={customer}
+    onLogout={logout}
+    onGoOrders={()=>setTab('orders')}
+    menu={menu}
+    favorites={favorites}
+    onToggleFavorite={toggleFavorite}
+    onAdd={add}
+    savedAddresses={savedAddresses}
+    onDeleteAddress={deleteSavedAddress}
+    onUseAddress={useSavedAddress}
+  />:<main className="page"><div className="empty-state pro-empty"><span>👤</span><h3>Tu cuenta está lista</h3><p>Entra por SMS para guardar pedidos y direcciones.</p></div><button className="primary wide" onClick={()=>setOtp(true)}>Entrar por SMS</button></main>;
+  if(checkout) body=<CheckoutPage
+    cart={cart}
+    customer={customer}
+    onSuccess={success}
+    setToast={setToast}
+    onBack={()=>setCheckout(false)}
+    savedAddresses={preferredAddress?[preferredAddress,...savedAddresses.filter(x=>x!==preferredAddress)]:savedAddresses}
+    onAddressUsed={rememberAddress}
+  />;
   if(receipt) body=<ReceiptPage order={receipt} onTrack={()=>{setReceipt(null);setTab('orders')}} onHome={()=>{setReceipt(null);setTab('menu')}}/>;
 
-  return <div className="app-shell">
-    <Header customer={customer} onLogout={logout} onAccount={()=>setTab('account')}/>
+  return <div className="app-shell pro-app-shell">
+    <Header customer={customer} onLogout={logout} onAccount={()=>setTab('account')} isOnline={isOnline} pushReady={pushReady}/>
     {body}
-    {!checkout&&!receipt&&<BottomNav tab={tab} setTab={setTab} cartCount={count}/>}
+    {!checkout&&!receipt&&tab==='menu'&&count>0?<button className={`floating-cart-bar ${cartPulse?'pulse':''}`} onClick={()=>setTab('cart')}>
+      <span className="floating-cart-count">{count}</span>
+      <b>Ver cesta</b>
+      <strong>{money(cartTotal)}</strong>
+    </button>:null}
+    {!checkout&&!receipt&&<BottomNav
+      tab={tab}
+      setTab={setTab}
+      cartCount={count}
+      notificationCount={notifications.filter(item=>!item.read).length}
+    />}
     {otp&&<OtpModal phone={customer?.phone} onVerified={verified} onClose={()=>setOtp(false)} setToast={setToast}/>}
     <Toast message={toast} onClose={()=>setToast('')}/>
   </div>;

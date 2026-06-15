@@ -119,3 +119,12 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
 
 # Google Places New API key for backend address autocomplete proxy
 GOOGLE_PLACES_API_KEY = os.getenv('GOOGLE_PLACES_API_KEY', '')
+import os
+
+FIREBASE_ENABLED = os.getenv('FIREBASE_ENABLED', 'False').lower() in ('1', 'true', 'yes', 'on')
+FIREBASE_PROJECT_ID = os.getenv('FIREBASE_PROJECT_ID', '')
+FIREBASE_CLIENT_EMAIL = os.getenv('FIREBASE_CLIENT_EMAIL', '')
+FIREBASE_PRIVATE_KEY = os.getenv('FIREBASE_PRIVATE_KEY', '')
+FIREBASE_PRIVATE_KEY_ID = os.getenv('FIREBASE_PRIVATE_KEY_ID', '')
+FIREBASE_CLIENT_ID = os.getenv('FIREBASE_CLIENT_ID', '')
+FIREBASE_CLIENT_CERT_URL = os.getenv('FIREBASE_CLIENT_CERT_URL', '')

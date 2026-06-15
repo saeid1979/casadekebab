@@ -19,9 +19,10 @@ from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage, OrderChatMessage, OrderReview, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
-from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer, OrderChatMessageSerializer, OrderReviewSerializer, ExpenseCategorySerializer, AccountingSettingsSerializer, RestaurantFinancialEntrySerializer, SystemBackupSerializer
+from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
+from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer, OrderChatMessageSerializer, OrderReviewSerializer, CustomerPushDeviceSerializer, ExpenseCategorySerializer, AccountingSettingsSerializer, RestaurantFinancialEntrySerializer, SystemBackupSerializer
 from .notifications import send_telegram_message, build_order_message, send_customer_order_sms, queue_sms
+from .push_notifications import send_order_status_push, send_payment_status_push, send_push_to_phone
 
 
 ADMIN_TOKEN_SALT = 'casa-de-kebab-admin-v1'
@@ -262,8 +263,11 @@ def secure_rider_update_order_status(request, order_code):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    old_status = order.status
     order.status = new_status
     order.save(update_fields=['status', 'updated_at'])
+    if old_status != new_status:
+        transaction.on_commit(lambda: send_order_status_push(order))
     return Response(OrderSerializer(order).data)
 
 
@@ -354,6 +358,93 @@ def customer_by_phone(request):
     except Customer.DoesNotExist:
         return Response({'exists': False})
     return Response({'exists': True, 'customer': CustomerSerializer(customer).data})
+
+
+@api_view(['POST'])
+def register_push_device(request):
+    phone = ''.join(ch for ch in str(request.data.get('phone') or '') if ch.isdigit())
+    token = str(request.data.get('device_token') or '').strip()
+    platform = str(request.data.get('platform') or CustomerPushDevice.PLATFORM_ANDROID).strip().lower()
+    app_version = str(request.data.get('app_version') or '').strip()[:40]
+    customer_id = request.data.get('customer_id')
+
+    if len(phone) < 9 or not token:
+        return Response(
+            {'detail': 'phone and device_token are required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if platform not in dict(CustomerPushDevice.PLATFORM_CHOICES):
+        platform = CustomerPushDevice.PLATFORM_ANDROID
+
+    customer = None
+    if customer_id:
+        customer = Customer.objects.filter(id=customer_id).first()
+    if customer is None:
+        customer = Customer.objects.filter(phone__endswith=phone[-9:]).first()
+
+    device, created = CustomerPushDevice.objects.update_or_create(
+        device_token=token,
+        defaults={
+            'customer': customer,
+            'phone': phone,
+            'platform': platform,
+            'app_version': app_version,
+            'is_active': True,
+            'last_seen_at': timezone.now(),
+            'last_error': '',
+        },
+    )
+    return Response(
+        {
+            'success': True,
+            'created': created,
+            'device': CustomerPushDeviceSerializer(device).data,
+        },
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+def unregister_push_device(request):
+    token = str(request.data.get('device_token') or '').strip()
+    phone = ''.join(ch for ch in str(request.data.get('phone') or '') if ch.isdigit())
+
+    if not token:
+        return Response(
+            {'detail': 'device_token is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    queryset = CustomerPushDevice.objects.filter(device_token=token)
+    if phone:
+        queryset = queryset.filter(phone__endswith=phone[-9:])
+
+    updated = queryset.update(
+        is_active=False,
+        last_seen_at=timezone.now(),
+    )
+    return Response({'success': True, 'updated': updated})
+
+
+@api_view(['POST'])
+@admin_token_required
+def test_customer_push(request):
+    phone = ''.join(ch for ch in str(request.data.get('phone') or '') if ch.isdigit())
+    if len(phone) < 9:
+        return Response(
+            {'detail': 'A valid phone is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    result = send_push_to_phone(
+        phone,
+        'Prueba Casa de Kebab Turco',
+        'Las notificaciones push están funcionando correctamente.',
+        {'type': 'test'},
+    )
+    return Response({'success': True, 'result': result})
+
 
 @api_view(['POST'])
 def create_order(request):
@@ -487,8 +578,11 @@ def update_order_status(request, order_code):
     if new_status not in dict(Order.STATUS_CHOICES):
         return Response({'detail': 'Invalid status'}, status=status.HTTP_400_BAD_REQUEST)
 
+    old_status = order.status
     order.status = new_status
     order.save(update_fields=['status', 'updated_at'])
+    if old_status != new_status:
+        transaction.on_commit(lambda: send_order_status_push(order))
 
     # If the restaurant marks a delivery order as ready or out for delivery and
     # no rider is selected yet, automatically choose the freest active rider.
@@ -760,7 +854,8 @@ def rider_update_order_status(request, order_code):
     if order.assigned_rider_id!=rider.id:return Response({'detail':'Este pedido no está asignado a este repartidor.'},status=status.HTTP_403_FORBIDDEN)
     allowed={Order.STATUS_PENDING:{Order.STATUS_ACCEPTED,Order.STATUS_OUT_FOR_DELIVERY,Order.STATUS_CANCELLED},Order.STATUS_ACCEPTED:{Order.STATUS_OUT_FOR_DELIVERY,Order.STATUS_CANCELLED},Order.STATUS_PREPARING:{Order.STATUS_OUT_FOR_DELIVERY,Order.STATUS_CANCELLED},Order.STATUS_READY:{Order.STATUS_OUT_FOR_DELIVERY,Order.STATUS_CANCELLED},Order.STATUS_OUT_FOR_DELIVERY:{Order.STATUS_DELIVERED,Order.STATUS_CANCELLED}}
     if new_status not in allowed.get(order.status,set()):return Response({'detail':f'No se puede cambiar {order.status} a {new_status}.'},status=status.HTTP_400_BAD_REQUEST)
-    order.status=new_status;order.save(update_fields=['status','updated_at']);return Response(OrderSerializer(order).data)
+    old_status=order.status; order.status=new_status; order.save(update_fields=['status','updated_at']);
+    if old_status!=new_status: transaction.on_commit(lambda: send_order_status_push(order));return Response(OrderSerializer(order).data)
 
 
 @api_view(['GET'])
@@ -914,9 +1009,12 @@ def update_payment_status(request, order_code):
     if new_status not in dict(Order.PAYMENT_STATUS_CHOICES):
         return Response({'detail': 'Invalid payment status'}, status=status.HTTP_400_BAD_REQUEST)
 
+    old_payment_status = order.payment_status
     order.payment_status = new_status
     order.save(update_fields=['payment_status', 'updated_at'])
     order.payments.update(status=new_status)
+    if old_payment_status != new_status:
+        transaction.on_commit(lambda: send_payment_status_push(order))
     return Response(OrderSerializer(order).data)
 
 
@@ -1456,23 +1554,11 @@ def create_order_review(request):
     comment = str(request.data.get('comment', '') or '').strip()
     if rating < 1 or rating > 5 or not comment:
         return Response({'detail': 'Selecciona de 1 a 5 estrellas y escribe tu opinión.'}, status=status.HTTP_400_BAD_REQUEST)
-    def clean_score(name, default=5):
-        try:
-            value = int(request.data.get(name, default))
-        except (TypeError, ValueError):
-            value = default
-        return min(5, max(1, value))
-
     row = OrderReview.objects.create(
         order=order,
         customer_name=order.customer_name or 'Cliente',
         customer_phone=order.customer_phone,
         rating=rating,
-        food_rating=clean_score('food_rating'),
-        packaging_rating=clean_score('packaging_rating'),
-        delivery_rating=clean_score('delivery_rating'),
-        rider_rating=clean_score('rider_rating'),
-        would_recommend=bool(request.data.get('would_recommend', True)),
         comment=comment[:1200],
     )
     return Response({'success': True, 'message': 'Opinión enviada y pendiente de aprobación.', 'review': OrderReviewSerializer(row).data}, status=status.HTTP_201_CREATED)

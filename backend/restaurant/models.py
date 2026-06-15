@@ -418,14 +418,7 @@ class OrderReview(models.Model):
     customer_name = models.CharField(max_length=160, blank=True, default='')
     customer_phone = models.CharField(max_length=30)
     rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
-    food_rating = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1)])
-    packaging_rating = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1)])
-    delivery_rating = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1)])
-    rider_rating = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1)])
-    would_recommend = models.BooleanField(default=True)
     comment = models.TextField(max_length=1200)
-    admin_reply = models.TextField(blank=True, default='')
-    is_featured = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     admin_note = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -435,8 +428,7 @@ class OrderReview(models.Model):
         ordering = ['-created_at']
 
     def save(self, *args, **kwargs):
-        for field in ['rating','food_rating','packaging_rating','delivery_rating','rider_rating']:
-            setattr(self, field, min(5, max(1, int(getattr(self, field, 5) or 5))))
+        self.rating = min(5, max(1, int(self.rating or 1)))
         if self.status == self.STATUS_APPROVED and not self.approved_at:
             self.approved_at = timezone.now()
         if self.status != self.STATUS_APPROVED:
@@ -445,6 +437,48 @@ class OrderReview(models.Model):
 
     def __str__(self):
         return f'{self.order.order_code} - {self.rating}/5 - {self.status}'
+
+
+class CustomerPushDevice(models.Model):
+    PLATFORM_ANDROID = 'android'
+    PLATFORM_IOS = 'ios'
+    PLATFORM_WEB = 'web'
+    PLATFORM_CHOICES = [
+        (PLATFORM_ANDROID, 'Android'),
+        (PLATFORM_IOS, 'iOS'),
+        (PLATFORM_WEB, 'Web'),
+    ]
+
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        related_name='push_devices',
+        blank=True,
+        null=True,
+    )
+    phone = models.CharField(max_length=30, db_index=True)
+    device_token = models.TextField(unique=True)
+    platform = models.CharField(
+        max_length=20,
+        choices=PLATFORM_CHOICES,
+        default=PLATFORM_ANDROID,
+    )
+    app_version = models.CharField(max_length=40, blank=True, default='')
+    is_active = models.BooleanField(default=True, db_index=True)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+    last_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-last_seen_at', '-created_at']
+        indexes = [
+            models.Index(fields=['phone', 'is_active']),
+        ]
+
+    def __str__(self):
+        return f'{self.phone} - {self.platform} - {"active" if self.is_active else "inactive"}'
+
 
 class ExpenseCategory(models.Model):
     name = models.CharField(max_length=120, unique=True)

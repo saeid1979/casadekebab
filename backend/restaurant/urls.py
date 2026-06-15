@@ -51,6 +51,9 @@ from .views import (
     order_chat,
     create_order_review,
     public_reviews,
+    register_push_device,
+    unregister_push_device,
+    test_customer_push,
     admin_accounting_summary,
     admin_accounting_settings,
     admin_expense_categories,
@@ -85,6 +88,9 @@ urlpatterns = [
     path('orders/<str:order_code>/chat/', order_chat, name='order-chat'),
     path('reviews/', create_order_review, name='create-order-review'),
     path('reviews/public/', public_reviews, name='public-reviews'),
+    path('push/register/', register_push_device, name='push-register'),
+    path('push/unregister/', unregister_push_device, name='push-unregister'),
+    path('push/test/', test_customer_push, name='push-test'),
 
     # Admin partner accounting
     path('admin/accounting/summary/', admin_accounting_summary, name='admin-accounting-summary'),
