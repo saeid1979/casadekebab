@@ -142,11 +142,17 @@ class OrderChatMessageAdmin(admin.ModelAdmin):
 
 @admin.register(OrderReview)
 class OrderReviewAdmin(admin.ModelAdmin):
-    list_display = ('order', 'customer_name', 'rating', 'status', 'created_at', 'approved_at')
-    list_editable = ('status',)
+    list_display = ('order', 'customer_name', 'rating', 'food_rating', 'delivery_rating', 'rider_rating', 'would_recommend', 'is_featured', 'status', 'created_at', 'approved_at')
+    list_editable = ('is_featured', 'status')
     list_filter = ('status', 'rating', 'created_at')
     search_fields = ('order__order_code', 'customer_name', 'customer_phone', 'comment')
     readonly_fields = ('created_at', 'approved_at')
+    fieldsets = (
+        ('Pedido y cliente', {'fields': ('order', 'customer_name', 'customer_phone')}),
+        ('Valoraciones', {'fields': ('rating', 'food_rating', 'packaging_rating', 'delivery_rating', 'rider_rating', 'would_recommend')}),
+        ('Opinión', {'fields': ('comment', 'admin_reply', 'is_featured', 'status')}),
+        ('Fechas', {'fields': ('created_at', 'approved_at')}),
+    )
 
 @admin.register(ExpenseCategory)
 class ExpenseCategoryAdmin(admin.ModelAdmin):

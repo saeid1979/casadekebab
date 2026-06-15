@@ -12,6 +12,8 @@ const RESTAURANT = { lat: 40.974836942683254, lng: -5.649336331469509 };
 const RESTAURANT_ADDRESS = 'Calle García Lorca, 1, Salamanca 37004';
 const CUSTOMER_KEY = 'cdkt_app_customer';
 const LAST_ORDER_KEY = 'cdkt_app_last_order';
+const FAVORITES_KEY = 'cdkt_app_favorites';
+const GOOGLE_MAPS_URL = 'https://www.google.com/maps/search/?api=1&query=Casa%20de%20Kebab%20Turco%20Salamanca';
 
 const statusSteps = [
   ['pending', 'Pedido recibido'],
@@ -37,6 +39,8 @@ function digits(v){ return String(v || '').replace(/\D/g, '').slice(-9); }
 function getCustomer(){ try { return JSON.parse(localStorage.getItem(CUSTOMER_KEY) || 'null'); } catch { return null; } }
 function saveCustomer(v){ localStorage.setItem(CUSTOMER_KEY, JSON.stringify(v)); }
 function clearCustomer(){ localStorage.removeItem(CUSTOMER_KEY); localStorage.removeItem(LAST_ORDER_KEY); }
+function getFavorites(){ try{return JSON.parse(localStorage.getItem(FAVORITES_KEY)||'[]')}catch{return []} }
+function saveFavorites(v){ localStorage.setItem(FAVORITES_KEY,JSON.stringify(v)); }
 function safeNum(v){ if(v === null || v === undefined || v === '') return null; const n=Number(v); return Number.isFinite(n)?n:null; }
 function coordinate7(v){
   const n=safeNum(v);
@@ -56,107 +60,79 @@ function Toast({message,onClose}){
   return <div className="toast" onClick={onClose}>{message}</div>;
 }
 
-function Header({customer,onLogout}){
-  return <header className="app-header">
-    <div className="brand">
-      <img src={logo} />
-      <div><b>Casa de Kebab Turco</b><small>Pedido online en Salamanca</small></div>
+function Header({customer,onLogout,onAccount}){
+  const [open,setOpen]=useState(true);
+  return <header className="app-header pro-header">
+    <button className="brand brand-button" onClick={onAccount}>
+      <img src={logo} alt="Casa de Kebab Turco" />
+      <div><b>Casa de Kebab Turco</b><small>Calle García Lorca, 1 · Salamanca</small></div>
+    </button>
+    <div className="header-actions">
+      <span className={`store-state ${open?'open':'closed'}`}><i></i>{open?'Abierto':'Cerrado'}</span>
+      {customer ? <button className="profile-button" onClick={onAccount}>{(customer.name||customer.phone||'C')[0]}</button> : <span className="online-dot">● Online</span>}
     </div>
-    {customer ? <button className="ghost" onClick={onLogout}>Salir</button> : <span className="online-dot">● Online</span>}
   </header>;
 }
 
-function ProductCard({item,onAdd}){
-  return <article className="product-card">
-    <div className="food-placeholder">🥙</div>
+function ProductCard({item,onAdd,isFavorite,onFavorite}){
+  const image=item.image_url;
+  return <article className="product-card pro-product-card">
+    <div className="product-media">
+      {image?<img src={image} alt={item.name_es}/>:<div className="food-placeholder">🥙</div>}
+      <button className={`favorite-button ${isFavorite?'active':''}`} onClick={()=>onFavorite(item.id)}>{isFavorite?'♥':'♡'}</button>
+      {item.is_available===false&&<span className="sold-out">Agotado</span>}
+    </div>
     <div className="product-copy">
-      <h3>{item.name_es}</h3>
-      <p>{item.description_es || 'Preparado al momento.'}</p>
-      <div className="product-foot">
-        <strong>{money(item.price)}</strong>
-        <button onClick={()=>onAdd(item)}>Añadir</button>
-      </div>
+      <div className="product-title-row"><h3>{item.name_es}</h3><strong>{money(item.price)}</strong></div>
+      <p>{item.description_es || 'Preparado al momento con ingredientes frescos.'}</p>
+      <button className="add-button" disabled={item.is_available===false} onClick={()=>onAdd(item)}><span>＋</span> Añadir</button>
     </div>
   </article>;
 }
 
-
-function MenuPage({menu,onAdd}){
-  const [query,setQuery]=useState('');
-  const [openCategoryId,setOpenCategoryId]=useState(null);
-
-  const normalizedQuery=query.trim().toLowerCase();
-
-  const filtered=useMemo(()=>menu.map(c=>({
-    ...c,
-    items:(c.items||[]).filter(i=>
-      `${i.name_es||''} ${i.description_es||''}`.toLowerCase().includes(normalizedQuery)
-    )
-  })).filter(c=>!normalizedQuery || c.items.length),[menu,normalizedQuery]);
-
-  useEffect(()=>{
-    if(normalizedQuery && filtered.length){
-      setOpenCategoryId(filtered[0].id);
-    }
-  },[normalizedQuery,filtered]);
-
-  function toggleCategory(id){
-    setOpenCategoryId(current=>current===id?null:id);
-  }
-
-  return <main className="page">
-    <section className="hero">
-      <div>
-        <span className="eyebrow">Sabor auténtico</span>
-        <h1>Tu kebab favorito, ahora en tu móvil</h1>
-        <p>Elige, confirma por SMS y sigue el pedido en tiempo real.</p>
-      </div>
-      <div className="hero-food">🌯</div>
-    </section>
-
-    <input
-      className="search"
-      value={query}
-      onChange={e=>setQuery(e.target.value)}
-      placeholder="Buscar comida..."
-    />
-
-    <div className="accordion-menu">
-      {filtered.map(cat=>{
-        const isOpen=openCategoryId===cat.id;
-
-        return <section key={cat.id} className={`accordion-category ${isOpen?'open':''}`}>
-          <button
-            type="button"
-            className="accordion-header"
-            onClick={()=>toggleCategory(cat.id)}
-            aria-expanded={isOpen}
-          >
-            <span>
-              <b>{cat.name_es}</b>
-              <small>{(cat.items||[]).length} productos</small>
-            </span>
-            <span className="accordion-arrow">{isOpen?'−':'+'}</span>
-          </button>
-
-          {isOpen&&
-            <div className="accordion-content">
-              {(cat.items||[]).length
-                ? <div className="product-grid">
-                    {cat.items.map(i=>
-                      <ProductCard key={i.id} item={i} onAdd={onAdd}/>
-                    )}
-                  </div>
-                : <div className="empty-state">No hay productos en esta categoría.</div>
-              }
-            </div>
-          }
-        </section>
-      })}
-    </div>
-  </main>
+function ReviewsStrip({reviews}){
+  if(!reviews.length) return null;
+  const average=(reviews.reduce((s,r)=>s+Number(r.rating||0),0)/reviews.length).toFixed(1);
+  return <section className="reviews-strip">
+    <div className="reviews-head"><div><small>OPINIONES REALES</small><h2>Clientes felices</h2></div><div className="rating-summary"><b>{average}</b><span>★★★★★</span><small>{reviews.length} opiniones</small></div></div>
+    <div className="review-cards">{reviews.slice(0,6).map(r=><article key={r.id}><div className="stars">{'★'.repeat(r.rating)}{'☆'.repeat(5-r.rating)}</div><p>“{r.comment}”</p><b>{r.customer_name||'Cliente'}</b></article>)}</div>
+  </section>;
 }
 
+function MenuPage({menu,onAdd,reviews}){
+  const [query,setQuery]=useState('');
+  const [activeCategory,setActiveCategory]=useState('all');
+  const [favorites,setFavorites]=useState(getFavorites());
+  const normalizedQuery=query.trim().toLowerCase();
+  const allItems=useMemo(()=>menu.flatMap(c=>(c.items||[]).map(i=>({...i,categoryId:c.id,categoryName:c.name_es}))),[menu]);
+  const filtered=allItems.filter(i=>{
+    const text=`${i.name_es||''} ${i.description_es||''}`.toLowerCase();
+    return (!normalizedQuery||text.includes(normalizedQuery))&&(activeCategory==='all'||String(i.categoryId)===String(activeCategory));
+  });
+  function toggleFavorite(id){
+    const next=favorites.includes(id)?favorites.filter(x=>x!==id):[...favorites,id];
+    setFavorites(next);saveFavorites(next);
+  }
+  return <main className="page home-page">
+    <section className="hero pro-hero">
+      <div className="hero-content">
+        <span className="eyebrow">Sabor auténtico · entrega rápida</span>
+        <h1>Tu comida favorita,<br/><em>sin complicaciones.</em></h1>
+        <p>Haz tu pedido en pocos pasos y sigue la entrega en tiempo real.</p>
+        <div className="hero-badges"><span>⚡ 20–35 min</span><span>📍 Salamanca</span><span>★ 4.9</span></div>
+      </div>
+      <div className="hero-food"><span>🌯</span><i></i></div>
+    </section>
+
+    <section className="smart-search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="¿Qué te apetece hoy?"/>{query&&<button onClick={()=>setQuery('')}>×</button>}</section>
+
+    <div className="category-chips"><button className={activeCategory==='all'?'active':''} onClick={()=>setActiveCategory('all')}>Todo</button>{menu.map(c=><button key={c.id} className={String(activeCategory)===String(c.id)?'active':''} onClick={()=>setActiveCategory(c.id)}>{c.name_es}</button>)}</div>
+
+    <div className="section-heading"><div><small>MENÚ</small><h2>{activeCategory==='all'?'Nuestros favoritos':menu.find(c=>String(c.id)===String(activeCategory))?.name_es}</h2></div><span>{filtered.length} productos</span></div>
+    {filtered.length?<div className="product-grid pro-grid">{filtered.map(i=><ProductCard key={i.id} item={i} onAdd={onAdd} isFavorite={favorites.includes(i.id)} onFavorite={toggleFavorite}/>)}</div>:<div className="empty-state">No encontramos productos con esa búsqueda.</div>}
+    <ReviewsStrip reviews={reviews}/>
+  </main>;
+}
 
 function CartPage({cart,setCart,onCheckout}){
   const subtotal=cart.reduce((s,x)=>s+Number(x.price)*x.qty,0);
@@ -563,8 +539,41 @@ function TrackingMap({order}){
   return <><div className="map" ref={ref}></div>{!hasRider&&<div className="notice">Esperando la ubicación GPS del repartidor.</div>}</>;
 }
 
+function StarInput({value,onChange,label}){
+  return <div className="rating-row"><span>{label}</span><div>{[1,2,3,4,5].map(n=><button type="button" key={n} className={n<=value?'active':''} onClick={()=>onChange(n)}>★</button>)}</div></div>;
+}
+
+function ReviewModal({order,customer,onClose,onDone,setToast}){
+  const [form,setForm]=useState({rating:5,food_rating:5,delivery_rating:5,packaging_rating:5,rider_rating:5,would_recommend:true,comment:''});
+  const [loading,setLoading]=useState(false);
+  async function submit(){
+    if(form.comment.trim().length<3)return setToast('Escribe una opinión breve.');
+    setLoading(true);
+    try{
+      await axios.post(`${API_BASE}/reviews/`,{order_code:order.order_code,phone:customer.phone,...form});
+      setToast('¡Gracias! Tu opinión se ha enviado.');
+      onDone?.();onClose();
+    }catch(e){setToast(e?.response?.data?.detail||'No se pudo enviar la opinión.');}
+    finally{setLoading(false);}
+  }
+  return <div className="overlay review-overlay"><section className="modal review-modal">
+    <button className="close" onClick={onClose}>×</button>
+    <div className="review-hero"><span>✨</span><h2>¿Qué tal tu pedido?</h2><p>{order.order_code}</p></div>
+    <StarInput label="Experiencia general" value={form.rating} onChange={v=>setForm({...form,rating:v})}/>
+    <StarInput label="Calidad de la comida" value={form.food_rating} onChange={v=>setForm({...form,food_rating:v})}/>
+    <StarInput label="Presentación y embalaje" value={form.packaging_rating} onChange={v=>setForm({...form,packaging_rating:v})}/>
+    {order.delivery_type==='delivery'&&<><StarInput label="Rapidez de entrega" value={form.delivery_rating} onChange={v=>setForm({...form,delivery_rating:v})}/><StarInput label="Atención del repartidor" value={form.rider_rating} onChange={v=>setForm({...form,rider_rating:v})}/></>}
+    <textarea value={form.comment} onChange={e=>setForm({...form,comment:e.target.value})} placeholder="Cuéntanos qué te gustó o qué podemos mejorar..." maxLength={1200}/>
+    <label className="recommend-switch"><input type="checkbox" checked={form.would_recommend} onChange={e=>setForm({...form,would_recommend:e.target.checked})}/><span>Recomendaría Casa de Kebab Turco</span></label>
+    <button className="primary wide animated-submit" onClick={submit} disabled={loading}>{loading?'Enviando...':'Enviar mi opinión'}</button>
+    <a className="google-review-link" href={GOOGLE_MAPS_URL} target="_blank" rel="noreferrer">Abrir Casa de Kebab en Google Maps</a>
+    <small className="privacy-note">La publicación en Google nunca es automática.</small>
+  </section></div>;
+}
+
 function OrdersPage({customer,setToast}){
   const [orders,setOrders]=useState([]),[selected,setSelected]=useState(null),[loading,setLoading]=useState(false);
+  const [reviewOrder,setReviewOrder]=useState(null);
   async function load(){
     if(!customer) return;
     setLoading(true);
@@ -585,26 +594,26 @@ function OrdersPage({customer,setToast}){
     <div className="order-tabs">{orders.map(o=><button key={o.order_code} className={order?.order_code===o.order_code?'active':''} onClick={()=>setSelected(o)}>{o.order_code}</button>)}</div>
     {order&&<>
       <div className="timeline">{statusSteps.map(([s,label],i)=><div key={s} className={i<=idx?'done':''}><span>{i<idx?'✓':i+1}</span><small>{label}</small></div>)}</div>
-      <div className="tracking-card">
-        <h2>{order.order_code}</h2>
+      <div className="tracking-card pro-tracking-card">
+        <div className="tracking-head"><div><small>ESTADO DEL PEDIDO</small><h2>{order.order_code}</h2></div><b>{money(order.total)}</b></div>
         <p>{order.address||'Recogida en tienda'}</p>
         <TrackingMap order={order}/>
+        {order.status==='delivered'&&<button className="review-order-button" onClick={()=>setReviewOrder(order)}>★ Valorar este pedido</button>}
       </div>
     </>}
+    {reviewOrder&&<ReviewModal order={reviewOrder} customer={customer} onClose={()=>setReviewOrder(null)} onDone={load} setToast={setToast}/>}
   </main>;
 }
 
 function AccountPage({customer,onLogout}){
-  return <main className="page">
-    <h1>Mi cuenta</h1>
-    <div className="account-card">
-      <div className="avatar">{(customer?.name||customer?.phone||'C')[0]}</div>
-      <h2>{customer?.name||'Cliente'}</h2>
-      <p>{customer?.phone}</p>
-      <p>{customer?.email||'Sin email'}</p>
-      <p>{customer?.default_address||'Sin dirección guardada'}</p>
-      <button className="danger wide" onClick={onLogout}>Cerrar sesión</button>
+  return <main className="page account-page">
+    <section className="account-hero"><div className="avatar">{(customer?.name||customer?.phone||'C')[0]}</div><div><small>MI CUENTA</small><h1>{customer?.name||'Cliente'}</h1><p>{customer?.phone}</p></div></section>
+    <div className="account-grid">
+      <article><span>📍</span><div><small>Dirección habitual</small><b>{customer?.default_address||'Aún no guardada'}</b></div></article>
+      <article><span>📦</span><div><small>Pedidos realizados</small><b>{customer?.total_orders||0}</b></div></article>
+      <article><span>✉️</span><div><small>Email</small><b>{customer?.email||'Sin email'}</b></div></article>
     </div>
+    <div className="account-card pro-account-card"><h2>Ayuda y restaurante</h2><a href="tel:+34613473564">☎ Llamar al restaurante</a><a href={GOOGLE_MAPS_URL} target="_blank" rel="noreferrer">📍 Abrir en Google Maps</a><p>{RESTAURANT_ADDRESS}</p><button className="danger wide" onClick={onLogout}>Cerrar sesión</button></div>
   </main>;
 }
 
@@ -622,8 +631,9 @@ function App(){
   const [checkout,setCheckout]=useState(false);
   const [receipt,setReceipt]=useState(null);
   const [toast,setToast]=useState('');
+  const [reviews,setReviews]=useState([]);
 
-  useEffect(()=>{axios.get(`${API_BASE}/menu/`).then(r=>{if(Array.isArray(r.data)&&r.data.length)setMenu(r.data)}).catch(()=>{});},[]);
+  useEffect(()=>{axios.get(`${API_BASE}/menu/`).then(r=>{if(Array.isArray(r.data)&&r.data.length)setMenu(r.data)}).catch(()=>{});axios.get(`${API_BASE}/reviews/public/`).then(r=>setReviews(Array.isArray(r.data)?r.data:(r.data.reviews||[]))).catch(()=>{});},[]);
   function add(item){setCart(c=>{const x=c.find(y=>y.id===item.id);return x?c.map(y=>y.id===item.id?{...y,qty:y.qty+1}:y):[...c,{...item,qty:1}]});setToast('Añadido a la cesta.');}
   function beginCheckout(){if(!customer)return setOtp(true);setCheckout(true);}
   function verified(c){setCustomer(c);setOtp(false);setCheckout(true);}
@@ -631,7 +641,7 @@ function App(){
   function logout(){clearCustomer();setCustomer(null);setTab('menu');}
   const count=cart.reduce((s,x)=>s+x.qty,0);
 
-  let body=<MenuPage menu={menu} onAdd={add}/>;
+  let body=<MenuPage menu={menu} onAdd={add} reviews={reviews}/>;
   if(tab==='cart') body=<CartPage cart={cart} setCart={setCart} onCheckout={beginCheckout}/>;
   if(tab==='orders') body=customer?<OrdersPage customer={customer} setToast={setToast}/>:<main className="page"><div className="empty-state">Primero inicia sesión por SMS.</div><button className="primary wide" onClick={()=>setOtp(true)}>Entrar</button></main>;
   if(tab==='account') body=customer?<AccountPage customer={customer} onLogout={logout}/>:<main className="page"><div className="empty-state">No has iniciado sesión.</div><button className="primary wide" onClick={()=>setOtp(true)}>Entrar por SMS</button></main>;
@@ -639,7 +649,7 @@ function App(){
   if(receipt) body=<ReceiptPage order={receipt} onTrack={()=>{setReceipt(null);setTab('orders')}} onHome={()=>{setReceipt(null);setTab('menu')}}/>;
 
   return <div className="app-shell">
-    <Header customer={customer} onLogout={logout}/>
+    <Header customer={customer} onLogout={logout} onAccount={()=>setTab('account')}/>
     {body}
     {!checkout&&!receipt&&<BottomNav tab={tab} setTab={setTab} cartCount={count}/>}
     {otp&&<OtpModal phone={customer?.phone} onVerified={verified} onClose={()=>setOtp(false)} setToast={setToast}/>}

@@ -1456,11 +1456,23 @@ def create_order_review(request):
     comment = str(request.data.get('comment', '') or '').strip()
     if rating < 1 or rating > 5 or not comment:
         return Response({'detail': 'Selecciona de 1 a 5 estrellas y escribe tu opinión.'}, status=status.HTTP_400_BAD_REQUEST)
+    def clean_score(name, default=5):
+        try:
+            value = int(request.data.get(name, default))
+        except (TypeError, ValueError):
+            value = default
+        return min(5, max(1, value))
+
     row = OrderReview.objects.create(
         order=order,
         customer_name=order.customer_name or 'Cliente',
         customer_phone=order.customer_phone,
         rating=rating,
+        food_rating=clean_score('food_rating'),
+        packaging_rating=clean_score('packaging_rating'),
+        delivery_rating=clean_score('delivery_rating'),
+        rider_rating=clean_score('rider_rating'),
+        would_recommend=bool(request.data.get('would_recommend', True)),
         comment=comment[:1200],
     )
     return Response({'success': True, 'message': 'Opinión enviada y pendiente de aprobación.', 'review': OrderReviewSerializer(row).data}, status=status.HTTP_201_CREATED)

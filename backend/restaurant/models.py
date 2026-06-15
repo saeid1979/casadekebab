@@ -418,7 +418,14 @@ class OrderReview(models.Model):
     customer_name = models.CharField(max_length=160, blank=True, default='')
     customer_phone = models.CharField(max_length=30)
     rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
+    food_rating = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1)])
+    packaging_rating = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1)])
+    delivery_rating = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1)])
+    rider_rating = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1)])
+    would_recommend = models.BooleanField(default=True)
     comment = models.TextField(max_length=1200)
+    admin_reply = models.TextField(blank=True, default='')
+    is_featured = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     admin_note = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -428,7 +435,8 @@ class OrderReview(models.Model):
         ordering = ['-created_at']
 
     def save(self, *args, **kwargs):
-        self.rating = min(5, max(1, int(self.rating or 1)))
+        for field in ['rating','food_rating','packaging_rating','delivery_rating','rider_rating']:
+            setattr(self, field, min(5, max(1, int(getattr(self, field, 5) or 5))))
         if self.status == self.STATUS_APPROVED and not self.approved_at:
             self.approved_at = timezone.now()
         if self.status != self.STATUS_APPROVED:

@@ -434,8 +434,8 @@ class OrderReviewSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderReview
-        fields = ['id', 'order_code', 'customer_name', 'rating', 'comment', 'status', 'created_at', 'approved_at']
-        read_only_fields = ['id', 'order_code', 'status', 'created_at', 'approved_at']
+        fields = ['id', 'order_code', 'customer_name', 'rating', 'food_rating', 'packaging_rating', 'delivery_rating', 'rider_rating', 'would_recommend', 'comment', 'admin_reply', 'is_featured', 'status', 'created_at', 'approved_at']
+        read_only_fields = ['id', 'order_code', 'admin_reply', 'is_featured', 'status', 'created_at', 'approved_at']
 
 class ExpenseCategorySerializer(serializers.ModelSerializer):
     class Meta:
