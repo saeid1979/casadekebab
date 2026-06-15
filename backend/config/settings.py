@@ -6,7 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'CHANGE_ME_CASA_DE_KEBAB_DEV_SECRET')
-DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost').split(',') if h.strip()]
 
 INSTALLED_APPS = [
@@ -111,10 +111,13 @@ CSRF_TRUSTED_ORIGINS = [
 
 
 CLOUDINARY_STORAGE = {
-    "CLOUD_NAME": os.getenv("dpfjihesj", ""),
-    "API_KEY": os.getenv("575598215374643", ""),
-    "API_SECRET": os.getenv("l6hS2vbXA_YHx8gEeAD2N6qH6Lg", ""),
+    "CLOUD_NAME": os.getenv("CLOUDINARY_CLOUD_NAME", ""),
+    "API_KEY": os.getenv("CLOUDINARY_API_KEY", ""),
+    "API_SECRET": os.getenv("CLOUDINARY_API_SECRET", ""),
 }
+
+# Compatibility for django-cloudinary-storage collectstatic command.
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 SMS_MODE = os.getenv('SMS_MODE', 'console')
 
