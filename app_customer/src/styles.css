@@ -621,3 +621,71 @@ body{padding-bottom:0}
 .push-chip.ready{background:#e2f6ea;color:#176f3b}
 .push-chip.waiting{background:#fff2dd;color:#965800}
 @media(max-width:700px){.push-chip{display:none}}
+
+/* === Casa de Kebab Turco: optimized food images === */
+.smart-food-image {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  background: #eee7e1;
+}
+
+.smart-food-image img {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transform: scale(1.01);
+  transition: opacity .22s ease, transform .28s ease;
+}
+
+.smart-food-image.is-loaded img {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.smart-food-image__skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(
+      90deg,
+      #eee7e1 25%,
+      #faf7f4 50%,
+      #eee7e1 75%
+    );
+  background-size: 200% 100%;
+  animation: cdkt-image-loading 1.15s linear infinite;
+}
+
+.smart-food-image.is-loaded .smart-food-image__skeleton {
+  display: none;
+}
+
+.smart-food-image--fallback {
+  min-height: 110px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #fff2dc, #f4d3ac);
+  font-size: 52px;
+}
+
+@keyframes cdkt-image-loading {
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smart-food-image img {
+    transition: none;
+  }
+
+  .smart-food-image__skeleton {
+    animation: none;
+  }
+}

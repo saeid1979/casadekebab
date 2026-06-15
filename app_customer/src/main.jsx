@@ -8,6 +8,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
 import 'leaflet/dist/leaflet.css';
 import './styles.css';
+import SmartFoodImage from "./components/SmartFoodImage";
 import logo from './assets/logo.png';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'https://casadekebab-backend.onrender.com/api/restaurant';
@@ -221,7 +222,7 @@ function ProductCard({item,onAdd,isFavorite,onToggleFavorite,onView,index=0}){
     <div className="product-media">
       {image
         ? <img src={image} alt={item.name_es} loading="lazy"/>
-        : <div className="food-placeholder">🥙</div>}
+        : <SmartFoodImage item={item} alt={item.name_es || item.name || "Comida"} />}
       <button
         type="button"
         className={`favorite-button ${isFavorite?'active':''}`}
