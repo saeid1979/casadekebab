@@ -10,6 +10,8 @@ DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost').split(',') if h.strip()]
 
 INSTALLED_APPS = [
+    'cloudinary_storage',
+    'cloudinary',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -68,7 +70,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 STORAGES = {
     'default': {
-        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        'BACKEND': 'cloudinary_storage.storage.MediaCloudinaryStorage',
     },
     'staticfiles': {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
@@ -106,6 +108,13 @@ CSRF_TRUSTED_ORIGINS = [
     'https://www.casadekebab.com',
     'https://casadekebab-backend.onrender.com',
 ]
+
+
+CLOUDINARY_STORAGE = {
+    "CLOUD_NAME": os.getenv("dpfjihesj", ""),
+    "API_KEY": os.getenv("575598215374643", ""),
+    "API_SECRET": os.getenv("l6hS2vbXA_YHx8gEeAD2N6qH6Lg", ""),
+}
 
 SMS_MODE = os.getenv('SMS_MODE', 'console')
 
