@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import axios from 'axios';
 import './styles.css';
@@ -26,6 +26,15 @@ const SALAMANCA_VIEWBOX = '-5.75,41.04,-5.55,40.90';
 
 const ADMIN_TOKEN_KEY = 'cdkt_admin_token';
 const ADMIN_USER_KEY = 'cdkt_admin_user';
+
+function getAttachmentLabel(url = '') {
+  const cleanUrl = String(url).split('?')[0].toLowerCase();
+  if (cleanUrl.endsWith('.pdf')) return 'Ver PDF';
+  if (/\.(jpg|jpeg|png|webp|gif|bmp|tif|tiff)$/.test(cleanUrl)) {
+    return 'Ver imagen';
+  }
+  return 'Descargar archivo';
+}
 
 function getAdminToken() {
   return localStorage.getItem(ADMIN_TOKEN_KEY) || '';
@@ -3609,7 +3618,23 @@ function DashboardApp() {
               <textarea value={accountingForm.description} onChange={e => setAccountingForm({...accountingForm, description: e.target.value})}/>
 
               <label>Factura o recibo</label>
-              <input type="file" accept=".jpg,.jpeg,.png,.pdf" onChange={e => setAccountingForm({...accountingForm, receipt: e.target.files?.[0] || null})}/>
+              <input
+  type="file"
+  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.rtf,.odt,.ods,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tif,.tiff,.zip"
+  onChange={e => {
+    const file = e.target.files?.[0] || null;
+    const maxBytes = 20 * 1024 * 1024;
+
+    if (file && file.size > maxBytes) {
+      setMessage('El archivo no puede superar 20 MB.');
+      e.target.value = '';
+      setAccountingForm({...accountingForm, receipt: null});
+      return;
+    }
+
+    setAccountingForm({...accountingForm, receipt: file});
+  }}
+/>
 
               <label>Estado</label>
               <select value={accountingForm.status} onChange={e => setAccountingForm({...accountingForm, status: e.target.value})}>
@@ -3675,7 +3700,7 @@ function DashboardApp() {
                   <td>{entry.entry_type === 'contribution' ? `Aportación: ${entry.contribution_from === 'saeid' ? 'Saeid' : 'Ahmed'}` : entry.entry_type === 'settlement' ? `${entry.paid_by_label} → ${entry.settlement_to === 'saeid' ? 'Saeid' : 'Ahmed'}` : entry.paid_by_label}</td>
                   <td>{entry.category_name || '-'}</td>
                   <td><b>{money(entry.amount)}</b><small>{entry.invoice_number || entry.bank_reference || ''}</small></td>
-                  <td>{entry.receipt_url ? <a href={entry.receipt_url} target="_blank" rel="noreferrer">Ver recibo</a> : <span className="muted">Sin recibo</span>}</td>
+                  <td>{entry.receipt_url ? <a href={entry.receipt_url} target="_blank" rel="noreferrer">{getAttachmentLabel(entry.receipt_url)}</a> : <span className="muted">Sin recibo</span>}</td>
                   <td>{entry.status_label}</td>
                   <td><button onClick={() => editFinancialEntry(entry)}>Editar</button><button className="danger-button compact" onClick={() => deleteFinancialEntry(entry)}>Eliminar</button></td>
                 </tr>)}
@@ -4323,3 +4348,6 @@ function pickApp() {
 
 const RootApp = pickApp();
 createRoot(document.getElementById('root')).render(<RootApp />);
+
+
+

@@ -2,6 +2,7 @@ from decimal import Decimal
 import random
 import string
 from django.db import models
+from cloudinary_storage.storage import RawMediaCloudinaryStorage
 from django.utils import timezone
 from django.core.validators import MinValueValidator
 from django.contrib.auth.hashers import make_password, check_password
@@ -594,7 +595,12 @@ class RestaurantFinancialEntry(models.Model):
     payment_method = models.CharField(max_length=30, choices=PAYMENT_CHOICES, default=PAYMENT_CASH)
     invoice_number = models.CharField(max_length=100, blank=True, default='')
     bank_reference = models.CharField(max_length=160, blank=True, default='')
-    receipt = models.FileField(upload_to='accounting_receipts/%Y/%m/', blank=True, null=True)
+    receipt = models.FileField(
+        upload_to='accounting_receipts/%Y/%m/',
+        storage=RawMediaCloudinaryStorage(),
+        blank=True,
+        null=True,
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_APPROVED, db_index=True)
     created_by_username = models.CharField(max_length=150, blank=True, default='')
     updated_by_username = models.CharField(max_length=150, blank=True, default='')

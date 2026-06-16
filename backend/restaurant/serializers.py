@@ -481,6 +481,14 @@ class AccountingSettingsSerializer(serializers.ModelSerializer):
 
 
 class RestaurantFinancialEntrySerializer(serializers.ModelSerializer):
+    ALLOWED_RECEIPT_EXTENSIONS = {
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt',
+        '.rtf', '.odt', '.ods', '.ppt', '.pptx',
+        '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp',
+        '.tif', '.tiff', '.zip',
+    }
+    MAX_RECEIPT_SIZE = 20 * 1024 * 1024
+
     category_name = serializers.CharField(source='category.name', read_only=True)
     receipt_url = serializers.SerializerMethodField()
     paid_by_label = serializers.CharField(source='get_paid_by_display', read_only=True)
@@ -562,6 +570,24 @@ class RestaurantFinancialEntrySerializer(serializers.ModelSerializer):
             attrs['settlement_to'] = ''
 
         return attrs
+
+    def validate_receipt(self, value):
+        if not value:
+            return value
+
+        from pathlib import Path
+
+        extension = Path(value.name).suffix.lower()
+        if extension not in self.ALLOWED_RECEIPT_EXTENSIONS:
+            raise serializers.ValidationError(
+                'Formato no permitido. Usa PDF, Office, texto, imagen o ZIP.'
+            )
+        if value.size > self.MAX_RECEIPT_SIZE:
+            raise serializers.ValidationError(
+                'El archivo no puede superar 20 MB.'
+            )
+        return value
+
 
 class SystemBackupSerializer(serializers.ModelSerializer):
     backup_type_label = serializers.CharField(source='get_backup_type_display', read_only=True)
