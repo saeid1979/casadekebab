@@ -14,6 +14,7 @@ const API = !ENV || /localhost|127\.0\.0\.1/i.test(ENV) ? PROD : ENV;
 const KEY = "cdkt_rider_session";
 const LOC = "cdkt_rider_last_location";
 const HISTORY_KEY = "cdkt_rider_history_v1";
+const ALERT_SEEN_KEY = "cdkt_rider_alert_seen_v1";
 const REST = { lat: 40.974836942683254, lng: -5.649336331469509 };
 
 const META = {
@@ -82,6 +83,125 @@ const route = (address) =>
 const authHeaders = (rider) => ({
   Authorization: `Bearer ${rider?.token || ""}`,
 });
+
+function readSeenOrderCodes() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ALERT_SEEN_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSeenOrderCodes(codes) {
+  localStorage.setItem(
+    ALERT_SEEN_KEY,
+    JSON.stringify(Array.from(new Set(codes)).slice(-200)),
+  );
+}
+
+function playRiderAlert(durationMs = 5000) {
+  const AudioContextClass =
+    window.AudioContext || window.webkitAudioContext;
+
+  if (!AudioContextClass) return () => {};
+
+  const context = new AudioContextClass();
+  let stopped = false;
+  let timer = null;
+
+  const beep = () => {
+    if (stopped) return;
+
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, now);
+    oscillator.frequency.exponentialRampToValueAtTime(620, now + 0.24);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.28, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+
+    oscillator.start(now);
+    oscillator.stop(now + 0.34);
+  };
+
+  const start = async () => {
+    try {
+      if (context.state === "suspended") {
+        await context.resume();
+      }
+    } catch {
+      // Continue even if resume is blocked.
+    }
+
+    beep();
+    timer = window.setInterval(beep, 520);
+  };
+
+  start();
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+
+    if (timer) {
+      window.clearInterval(timer);
+    }
+
+    try {
+      context.close();
+    } catch {
+      // Ignore close error.
+    }
+  };
+
+  window.setTimeout(stop, durationMs);
+  return stop;
+}
+
+function NewOrderAlert({ order, onOpen, onClose }) {
+  if (!order) return null;
+
+  return (
+    <div className="new-order-alert-backdrop" role="alert">
+      <button
+        type="button"
+        className="new-order-alert-card"
+        onClick={onOpen}
+      >
+        <span className="new-order-alert-ring ring-one" />
+        <span className="new-order-alert-ring ring-two" />
+        <span className="new-order-alert-ring ring-three" />
+
+        <div className="new-order-alert-logo">
+          <img src={logo} alt="Casa de Kebab Turco" />
+        </div>
+
+        <span className="new-order-alert-kicker">NUEVO PEDIDO</span>
+        <h2>{order.order_code}</h2>
+        <p>{order.customer_name || "Cliente"}</p>
+        <strong>{money(order.total)}</strong>
+        <small>Toca para abrir la entrega</small>
+      </button>
+
+      <button
+        type="button"
+        className="new-order-alert-close"
+        onClick={onClose}
+        aria-label="Cerrar aviso"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
 
 function Toast({ message, close }) {
   useEffect(() => {
@@ -1048,6 +1168,9 @@ function Dashboard({ rider, logout, msg }) {
   const [tab, setTab] = useState("home");
   const [detailOpen, setDetailOpen] = useState(false);
   const [history, setHistory] = useState(readHistory);
+  const [alertOrder, setAlertOrder] = useState(null);
+  const alertStopRef = useRef(null);
+  const alertTimerRef = useRef(null);
 
   const [loc, setLoc] = useState(() => {
     try {
@@ -1112,6 +1235,42 @@ function Dashboard({ rider, logout, msg }) {
 
       const list = response.data.orders || [];
       setOrders(list);
+
+      const seenCodes = readSeenOrderCodes();
+      const unseenOrders = list.filter(
+        (order) => !seenCodes.includes(order.order_code),
+      );
+
+      if (unseenOrders.length) {
+        const newest = unseenOrders[0];
+
+        setAlertOrder(newest);
+
+        if (alertStopRef.current) {
+          alertStopRef.current();
+        }
+
+        alertStopRef.current = playRiderAlert(5000);
+
+        if ("vibrate" in navigator) {
+          navigator.vibrate([
+            350, 180, 350, 180, 350, 180, 350, 180, 350,
+          ]);
+        }
+
+        saveSeenOrderCodes([
+          ...seenCodes,
+          ...unseenOrders.map((order) => order.order_code),
+        ]);
+
+        if (alertTimerRef.current) {
+          window.clearTimeout(alertTimerRef.current);
+        }
+
+        alertTimerRef.current = window.setTimeout(() => {
+          setAlertOrder(null);
+        }, 5000);
+      }
 
       if (!selectedCode && list[0]) {
         setSelectedCode(list[0].order_code);
@@ -1244,8 +1403,54 @@ function Dashboard({ rider, logout, msg }) {
     setTab(nextTab);
   }
 
+  function closeNewOrderAlert() {
+    setAlertOrder(null);
+
+    if (alertStopRef.current) {
+      alertStopRef.current();
+      alertStopRef.current = null;
+    }
+
+    if ("vibrate" in navigator) {
+      navigator.vibrate(0);
+    }
+
+    if (alertTimerRef.current) {
+      window.clearTimeout(alertTimerRef.current);
+      alertTimerRef.current = null;
+    }
+  }
+
+  function openAlertOrder() {
+    if (!alertOrder) return;
+    const order = alertOrder;
+    closeNewOrderAlert();
+    openOrder(order);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (alertStopRef.current) {
+        alertStopRef.current();
+      }
+
+      if (alertTimerRef.current) {
+        window.clearTimeout(alertTimerRef.current);
+      }
+
+      if ("vibrate" in navigator) {
+        navigator.vibrate(0);
+      }
+    };
+  }, []);
+
   return (
     <div className="rider-shell">
+      <NewOrderAlert
+        order={alertOrder}
+        onOpen={openAlertOrder}
+        onClose={closeNewOrderAlert}
+      />
       <RiderHeader rider={rider} gps={gps} refresh={() => load()} />
 
       <main className="rider-main">
@@ -1340,4 +1545,5 @@ function App() {
 }
 
 createRoot(document.getElementById("root")).render(<App />);
+
 
