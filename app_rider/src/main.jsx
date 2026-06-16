@@ -35,6 +35,43 @@ const NEXT = {
   out_for_delivery: "delivered",
 };
 
+// AUTO_FLOW_PATCH_V1
+const AUTO_PROGRESS_TARGET = {
+  pending: "accepted",
+  accepted: "out_for_delivery",
+  preparing: "out_for_delivery",
+  ready: "out_for_delivery",
+};
+
+const AUTO_PROGRESS_DELAY_MS = {
+  pending: 700,
+  accepted: 1100,
+  preparing: 900,
+  ready: 700,
+};
+
+const sleep = (milliseconds) =>
+  new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+function distanceMeters(a, b) {
+  if (!a || !b) return Infinity;
+
+  const earthRadius = 6371000;
+  const toRad = (value) => (value * Math.PI) / 180;
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const deltaLat = toRad(b.lat - a.lat);
+  const deltaLng = toRad(b.lng - a.lng);
+
+  const h =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) *
+      Math.cos(lat2) *
+      Math.sin(deltaLng / 2) ** 2;
+
+  return 2 * earthRadius * Math.asin(Math.sqrt(h));
+}
+
 const money = (value) =>
   `${Number(value || 0).toFixed(2).replace(".", ",")} €`;
 
@@ -323,10 +360,17 @@ function Login({ done, msg }) {
   );
 }
 
-function DeliveryMap({ order, loc }) {
-  const ref = useRef(null);
-  const map = useRef(null);
-  const layers = useRef([]);
+function DeliveryMap({ order, loc, compact = false }) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const riderMarkerRef = useRef(null);
+  const customerMarkerRef = useRef(null);
+  const routeOutlineRef = useRef(null);
+  const routeLineRef = useRef(null);
+  const animationRef = useRef(null);
+  const lastRouteOriginRef = useRef(null);
+  const lastRouteAtRef = useRef(0);
+  const fittedRef = useRef(false);
 
   const customerLat = num(order?.delivery_latitude);
   const customerLng = num(order?.delivery_longitude);
@@ -337,136 +381,223 @@ function DeliveryMap({ order, loc }) {
   const hasRider = valid(riderLat, riderLng);
 
   useEffect(() => {
-    if (!ref.current || map.current) return;
+    if (!containerRef.current || mapRef.current) return;
 
-    map.current = L.map(ref.current, {
-      zoomControl: true,
-    }).setView([REST.lat, REST.lng], 14);
+    const map = L.map(containerRef.current, {
+      zoomControl: !compact,
+      attributionControl: !compact,
+      preferCanvas: true,
+    }).setView([REST.lat, REST.lng], compact ? 13 : 14);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
+      updateWhenIdle: false,
+      keepBuffer: 4,
       attribution: "© OpenStreetMap",
-    }).addTo(map.current);
-  }, []);
+    }).addTo(map);
+
+    L.circleMarker([REST.lat, REST.lng], {
+      radius: compact ? 7 : 10,
+      color: "#ffffff",
+      fillColor: "#8f1d18",
+      fillOpacity: 1,
+      weight: compact ? 3 : 4,
+    })
+      .addTo(map)
+      .bindPopup("Casa de Kebab Turco");
+
+    mapRef.current = map;
+
+    const resizeTimer = window.setTimeout(() => {
+      map.invalidateSize(false);
+    }, 160);
+
+    return () => {
+      window.clearTimeout(resizeTimer);
+
+      if (animationRef.current) {
+        window.cancelAnimationFrame(animationRef.current);
+      }
+
+      map.remove();
+      mapRef.current = null;
+    };
+  }, [compact]);
 
   useEffect(() => {
-    const currentMap = map.current;
-    if (!currentMap) return;
+    const map = mapRef.current;
+    if (!map || !hasCustomer) return;
 
-    layers.current.forEach((layer) => currentMap.removeLayer(layer));
-    layers.current = [];
+    const point = [customerLat, customerLng];
 
-    const add = (layer) => {
-      layers.current.push(layer);
-      return layer;
+    if (!customerMarkerRef.current) {
+      customerMarkerRef.current = L.circleMarker(point, {
+        radius: compact ? 7 : 10,
+        color: "#ffffff",
+        fillColor: "#ef4444",
+        fillOpacity: 1,
+        weight: compact ? 3 : 4,
+      })
+        .addTo(map)
+        .bindPopup("Cliente");
+    } else {
+      customerMarkerRef.current.setLatLng(point);
+    }
+  }, [customerLat, customerLng, hasCustomer, compact]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !hasRider) return;
+
+    const nextPoint = L.latLng(riderLat, riderLng);
+
+    if (!riderMarkerRef.current) {
+      riderMarkerRef.current = L.circleMarker(nextPoint, {
+        radius: compact ? 8 : 11,
+        color: "#ffffff",
+        fillColor: "#16a34a",
+        fillOpacity: 1,
+        weight: compact ? 4 : 5,
+      })
+        .addTo(map)
+        .bindPopup("Tu ubicación");
+
+      return;
+    }
+
+    if (animationRef.current) {
+      window.cancelAnimationFrame(animationRef.current);
+    }
+
+    const marker = riderMarkerRef.current;
+    const startPoint = marker.getLatLng();
+    const startedAt = performance.now();
+    const duration = 900;
+
+    const animate = (time) => {
+      const progress = Math.min(1, (time - startedAt) / duration);
+      const eased = 1 - (1 - progress) ** 3;
+
+      const lat =
+        startPoint.lat + (nextPoint.lat - startPoint.lat) * eased;
+      const lng =
+        startPoint.lng + (nextPoint.lng - startPoint.lng) * eased;
+
+      marker.setLatLng([lat, lng]);
+
+      if (progress < 1) {
+        animationRef.current = window.requestAnimationFrame(animate);
+      }
     };
 
-    const bounds = [[REST.lat, REST.lng]];
+    animationRef.current = window.requestAnimationFrame(animate);
+  }, [riderLat, riderLng, hasRider, compact]);
 
-    add(
-      L.circleMarker([REST.lat, REST.lng], {
-        radius: 10,
-        color: "#ffffff",
-        fillColor: "#8f1d18",
-        fillOpacity: 1,
-        weight: 4,
-      })
-        .addTo(currentMap)
-        .bindPopup("Casa de Kebab Turco"),
-    );
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !hasRider || !hasCustomer) return;
 
-    if (hasCustomer) {
-      add(
-        L.circleMarker([customerLat, customerLng], {
-          radius: 10,
-          color: "#ffffff",
-          fillColor: "#ef4444",
-          fillOpacity: 1,
-          weight: 4,
-        })
-          .addTo(currentMap)
-          .bindPopup("Cliente"),
-      );
+    const origin = { lat: riderLat, lng: riderLng };
+    const destination = { lat: customerLat, lng: customerLng };
+    const moved = distanceMeters(lastRouteOriginRef.current, origin);
+    const elapsed = Date.now() - lastRouteAtRef.current;
 
-      bounds.push([customerLat, customerLng]);
+    if (moved < 18 && elapsed < 12000 && routeLineRef.current) {
+      return;
     }
 
-    if (hasRider) {
-      add(
-        L.circleMarker([riderLat, riderLng], {
-          radius: 11,
-          color: "#ffffff",
-          fillColor: "#16a34a",
-          fillOpacity: 1,
-          weight: 5,
-        })
-          .addTo(currentMap)
-          .bindPopup("Tu ubicación"),
-      );
+    lastRouteOriginRef.current = origin;
+    lastRouteAtRef.current = Date.now();
 
-      bounds.push([riderLat, riderLng]);
-    }
+    let cancelled = false;
 
-    async function drawRoute() {
-      if (hasRider && hasCustomer) {
-        let line = [
-          [riderLat, riderLng],
-          [customerLat, customerLng],
-        ];
+    async function updateRoute() {
+      let line = [
+        [origin.lat, origin.lng],
+        [destination.lat, destination.lng],
+      ];
 
-        try {
-          const url =
-            `https://router.project-osrm.org/route/v1/driving/` +
-            `${riderLng},${riderLat};${customerLng},${customerLat}` +
-            "?overview=full&geometries=geojson";
+      try {
+        const url =
+          `https://router.project-osrm.org/route/v1/driving/` +
+          `${origin.lng},${origin.lat};${destination.lng},${destination.lat}` +
+          "?overview=full&geometries=geojson";
 
-          const data = await fetch(url).then((response) => response.json());
-          const coords = data?.routes?.[0]?.geometry?.coordinates;
+        const data = await fetch(url).then((response) => response.json());
+        const coordinates = data?.routes?.[0]?.geometry?.coordinates;
 
-          if (coords?.length) {
-            line = coords.map(([lng, lat]) => [lat, lng]);
-          }
-        } catch {
-          // Straight line fallback.
+        if (coordinates?.length) {
+          line = coordinates.map(([lng, lat]) => [lat, lng]);
         }
-
-        add(
-          L.polyline(line, {
-            color: "#ffffff",
-            weight: 12,
-            opacity: 0.95,
-          }).addTo(currentMap),
-        );
-
-        add(
-          L.polyline(line, {
-            color: "#8f1d18",
-            weight: 7,
-            opacity: 0.95,
-          }).addTo(currentMap),
-        );
+      } catch {
+        // Straight line fallback.
       }
 
-      if (bounds.length > 1) {
-        currentMap.fitBounds(bounds, {
-          padding: [34, 34],
-          maxZoom: 16,
-        });
+      if (cancelled || !mapRef.current) return;
+
+      if (!routeOutlineRef.current) {
+        routeOutlineRef.current = L.polyline(line, {
+          color: "#ffffff",
+          weight: compact ? 8 : 12,
+          opacity: 0.94,
+          interactive: false,
+          smoothFactor: 1.4,
+        }).addTo(map);
+      } else {
+        routeOutlineRef.current.setLatLngs(line);
+      }
+
+      if (!routeLineRef.current) {
+        routeLineRef.current = L.polyline(line, {
+          color: "#8f1d18",
+          weight: compact ? 5 : 7,
+          opacity: 0.96,
+          interactive: false,
+          smoothFactor: 1.4,
+        }).addTo(map);
+      } else {
+        routeLineRef.current.setLatLngs(line);
+      }
+
+      if (!fittedRef.current) {
+        map.fitBounds(
+          [
+            [origin.lat, origin.lng],
+            [destination.lat, destination.lng],
+          ],
+          {
+            padding: compact ? [18, 18] : [34, 34],
+            maxZoom: compact ? 15 : 16,
+            animate: true,
+            duration: 0.7,
+          },
+        );
+
+        fittedRef.current = true;
       }
     }
 
-    drawRoute();
+    updateRoute();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
-    order?.order_code,
-    customerLat,
-    customerLng,
     riderLat,
     riderLng,
-    hasCustomer,
+    customerLat,
+    customerLng,
     hasRider,
+    hasCustomer,
+    compact,
   ]);
 
-  return <div ref={ref} className="delivery-map" />;
+  return (
+    <div
+      ref={containerRef}
+      className={compact ? "delivery-map compact-map" : "delivery-map"}
+    />
+  );
 }
 
 function StatusBadge({ status }) {
@@ -727,15 +858,13 @@ function DeliveryDetail({
       </section>
 
       <section className="sticky-actions">
-        {next && (
+        {order.status === "out_for_delivery" && (
           <button
             type="button"
             className="primary-action"
-            onClick={() => changeStatus(next)}
+            onClick={() => changeStatus("delivered")}
           >
-            {next === "delivered"
-              ? "Marcar como entregado"
-              : `Cambiar a ${(META[next] || [next])[0]}`}
+            Confirmar entrega al cliente
           </button>
         )}
 
@@ -746,6 +875,17 @@ function DeliveryDetail({
         >
           Registrar incidencia
         </button>
+
+        <div className="auto-flow-note">
+          <span className="auto-flow-icon">⚡</span>
+          <div>
+            <b>Flujo automático activo</b>
+            <small>
+              Aceptación y salida a reparto se actualizan automáticamente.
+              Solo la entrega final requiere tu confirmación.
+            </small>
+          </div>
+        </div>
       </section>
 
       <Chat order={order} rider={rider} msg={msg} />
@@ -1109,6 +1249,38 @@ function AccountScreen({
   );
 }
 
+function FloatingLiveRoute({ order, loc, hidden, onOpen }) {
+  if (!order || hidden) return null;
+
+  return (
+    <aside className="floating-live-route">
+      <button
+        type="button"
+        className="floating-live-map"
+        onClick={onOpen}
+        aria-label="Abrir mapa en vivo"
+      >
+        <DeliveryMap order={order} loc={loc} compact />
+        <span className="live-map-label">
+          <i />
+          MAPA EN VIVO
+        </span>
+      </button>
+
+      <button
+        type="button"
+        className="floating-live-info"
+        onClick={onOpen}
+      >
+        <span>
+          <small>{order.order_code}</small>
+          <b>{order.customer_name || "Cliente"}</b>
+        </span>
+        <strong>Ver ruta ›</strong>
+      </button>
+    </aside>
+  );
+}
 function BottomNavigation({ tab, setTab, badge }) {
   const items = [
     ["home", "⌂", "Inicio"],
@@ -1168,6 +1340,8 @@ function Dashboard({ rider, logout, msg }) {
   const [tab, setTab] = useState("home");
   const [detailOpen, setDetailOpen] = useState(false);
   const [history, setHistory] = useState(readHistory);
+  const autoProgressRef = useRef(new Set());
+  const autoProgressBusyRef = useRef(false);
   const [alertOrder, setAlertOrder] = useState(null);
   const alertStopRef = useRef(null);
   const alertTimerRef = useRef(null);
@@ -1224,6 +1398,89 @@ function Dashboard({ rider, logout, msg }) {
     });
   }
 
+  async function autoProgressOrders(list) {
+    if (autoProgressBusyRef.current) return;
+
+    const candidates = list.filter(
+      (order) =>
+        AUTO_PROGRESS_TARGET[order.status] &&
+        !autoProgressRef.current.has(
+          `${order.order_code}:${order.status}`,
+        ),
+    );
+
+    if (!candidates.length) return;
+
+    autoProgressBusyRef.current = true;
+
+    try {
+      for (const order of candidates) {
+        const key = `${order.order_code}:${order.status}`;
+        autoProgressRef.current.add(key);
+
+        await sleep(AUTO_PROGRESS_DELAY_MS[order.status] || 700);
+
+        try {
+          const response = await axios.post(
+            `${API}/rider/secure/orders/${order.order_code}/status/`,
+            { status: AUTO_PROGRESS_TARGET[order.status] },
+            {
+              headers: authHeaders(rider),
+              timeout: 45000,
+            },
+          );
+
+          const updated = response.data;
+
+          setOrders((current) =>
+            current.map((item) =>
+              item.order_code === updated.order_code ? updated : item,
+            ),
+          );
+
+          if (AUTO_PROGRESS_TARGET[updated.status]) {
+            const nextKey = `${updated.order_code}:${updated.status}`;
+
+            if (!autoProgressRef.current.has(nextKey)) {
+              await sleep(
+                AUTO_PROGRESS_DELAY_MS[updated.status] || 900,
+              );
+
+              autoProgressRef.current.add(nextKey);
+
+              try {
+                const nextResponse = await axios.post(
+                  `${API}/rider/secure/orders/${updated.order_code}/status/`,
+                  { status: AUTO_PROGRESS_TARGET[updated.status] },
+                  {
+                    headers: authHeaders(rider),
+                    timeout: 45000,
+                  },
+                );
+
+                const nextUpdated = nextResponse.data;
+
+                setOrders((current) =>
+                  current.map((item) =>
+                    item.order_code === nextUpdated.order_code
+                      ? nextUpdated
+                      : item,
+                  ),
+                );
+              } catch {
+                // Future polling retries if necessary.
+              }
+            }
+          }
+        } catch {
+          autoProgressRef.current.delete(key);
+        }
+      }
+    } finally {
+      autoProgressBusyRef.current = false;
+    }
+  }
+
   async function load(silent = false) {
     if (!silent) setLoading(true);
 
@@ -1235,6 +1492,7 @@ function Dashboard({ rider, logout, msg }) {
 
       const list = response.data.orders || [];
       setOrders(list);
+      autoProgressOrders(list);
 
       const seenCodes = readSeenOrderCodes();
       const unseenOrders = list.filter(
@@ -1508,6 +1766,13 @@ function Dashboard({ rider, logout, msg }) {
         )}
       </main>
 
+      <FloatingLiveRoute
+        order={selected}
+        loc={loc}
+        hidden={detailOpen}
+        onOpen={() => selected && openOrder(selected)}
+      />
+
       {!detailOpen && (
         <BottomNavigation
           tab={tab}
@@ -1545,5 +1810,6 @@ function App() {
 }
 
 createRoot(document.getElementById("root")).render(<App />);
+
 
 
