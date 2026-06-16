@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import axios from "axios";
 import L from "leaflet";
@@ -673,7 +673,27 @@ function HomeScreen({
           </button>
         </div>
 
-        <div className="hero-scooter">🛵</div>
+        <div className={`hero-scooter-scene ${gps ? "is-moving" : ""}`}>
+  <div className="gps-wave gps-wave-one" />
+  <div className="gps-wave gps-wave-two" />
+  <div className="gps-wave gps-wave-three" />
+
+  <div className="motion-trails" aria-hidden="true">
+    <i />
+    <i />
+    <i />
+  </div>
+
+  <div className="road-dust" aria-hidden="true">
+    <span />
+    <span />
+    <span />
+  </div>
+
+  <div className="hero-scooter" aria-label="Moto de reparto">
+    🛵
+  </div>
+</div>
       </section>
 
       <section className="metrics-grid">
@@ -1320,3 +1340,4 @@ function App() {
 }
 
 createRoot(document.getElementById("root")).render(<App />);
+
