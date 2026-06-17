@@ -4,7 +4,7 @@ from django.conf import settings
 import requests
 from django.utils import timezone
 from rest_framework import serializers
-from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
+from .models import Category, MenuItem, MenuOption, MenuOptionGroup, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup, RiderPushDevice
 
 
 SALAMANCA_LAT_MIN = 40.80
@@ -609,4 +609,17 @@ class SystemBackupSerializer(serializers.ModelSerializer):
             obj.status == SystemBackup.STATUS_COMPLETED
             and obj.file_path
         )
+
+# --- Rider push serializer restored by targeted repair ---
+class RiderPushDeviceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RiderPushDevice
+        fields = "__all__"
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "last_seen_at",
+        ]
+# --- End Rider push serializer repair ---
 

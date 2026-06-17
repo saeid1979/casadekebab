@@ -2344,3 +2344,163 @@ def admin_system_backup_verify(request, backup_id):
         ),
     })
 
+# --- Rider FCM endpoints restored by targeted repair ---
+@api_view(["POST"])
+@rider_token_required
+def secure_rider_push_register(request):
+    from django.utils import timezone
+    from .models import RiderPushDevice
+    from .serializers import RiderPushDeviceSerializer
+
+    rider = request.rider
+    token = str(
+        request.data.get("device_token")
+        or request.data.get("token")
+        or ""
+    ).strip()
+
+    if not token:
+        return Response(
+            {"detail": "device_token is required"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    field_names = {
+        field.name for field in RiderPushDevice._meta.get_fields()
+        if getattr(field, "concrete", False)
+    }
+
+    lookup_name = (
+        "device_token" if "device_token" in field_names
+        else "token" if "token" in field_names
+        else None
+    )
+    if not lookup_name:
+        return Response(
+            {"detail": "RiderPushDevice has no token field"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    defaults = {}
+    if "rider" in field_names:
+        defaults["rider"] = rider
+    if "platform" in field_names:
+        defaults["platform"] = str(
+            request.data.get("platform") or "android"
+        ).strip().lower()
+    if "app_version" in field_names:
+        defaults["app_version"] = str(
+            request.data.get("app_version") or ""
+        ).strip()[:80]
+    if "is_active" in field_names:
+        defaults["is_active"] = True
+    if "last_seen_at" in field_names:
+        defaults["last_seen_at"] = timezone.now()
+    if "last_error" in field_names:
+        defaults["last_error"] = ""
+
+    device, created = RiderPushDevice.objects.update_or_create(
+        **{lookup_name: token},
+        defaults=defaults,
+    )
+
+    return Response(
+        {
+            "success": True,
+            "created": created,
+            "device": RiderPushDeviceSerializer(device).data,
+        },
+        status=(
+            status.HTTP_201_CREATED
+            if created
+            else status.HTTP_200_OK
+        ),
+    )
+
+
+@api_view(["POST"])
+@rider_token_required
+def secure_rider_push_unregister(request):
+    from django.utils import timezone
+    from .models import RiderPushDevice
+
+    rider = request.rider
+    token = str(
+        request.data.get("device_token")
+        or request.data.get("token")
+        or ""
+    ).strip()
+
+    if not token:
+        return Response(
+            {"detail": "device_token is required"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    field_names = {
+        field.name for field in RiderPushDevice._meta.get_fields()
+        if getattr(field, "concrete", False)
+    }
+    lookup_name = (
+        "device_token" if "device_token" in field_names
+        else "token" if "token" in field_names
+        else None
+    )
+    if not lookup_name:
+        return Response(
+            {"detail": "RiderPushDevice has no token field"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    filters = {lookup_name: token}
+    if "rider" in field_names:
+        filters["rider"] = rider
+
+    updates = {}
+    if "is_active" in field_names:
+        updates["is_active"] = False
+    if "last_seen_at" in field_names:
+        updates["last_seen_at"] = timezone.now()
+
+    updated = RiderPushDevice.objects.filter(**filters).update(**updates)
+    return Response({"success": True, "updated": updated})
+
+
+@api_view(["POST"])
+@rider_token_required
+def secure_rider_push_test(request):
+    try:
+        from .rider_push_notifications import send_new_order_to_rider
+    except Exception as exc:
+        return Response(
+            {"detail": f"Push helper unavailable: {exc}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    rider = request.rider
+    order = None
+
+    try:
+        order = rider.orders.exclude(
+            status__in=["delivered", "cancelled"]
+        ).order_by("-created_at").first()
+    except Exception:
+        pass
+
+    if not order:
+        return Response(
+            {"detail": "No active rider order is available for a test."},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    try:
+        result = send_new_order_to_rider(order)
+    except Exception as exc:
+        return Response(
+            {"detail": f"Push test failed: {exc}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response({"success": True, "result": result})
+# --- End Rider FCM endpoint repair ---
+
