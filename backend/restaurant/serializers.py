@@ -234,7 +234,8 @@ class OrderItemInputSerializer(serializers.Serializer):
 
 class CreateOrderSerializer(serializers.Serializer):
     customer_name = serializers.CharField(max_length=160, required=False, allow_blank=True)
-    customer_phone = serializers.CharField(max_length=30)
+    customer_phone = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    admin_order = serializers.BooleanField(required=False, default=False, write_only=True)
     customer_email = serializers.EmailField(required=False, allow_blank=True)
     delivery_type = serializers.ChoiceField(choices=[Order.DELIVERY_COLLECTION, Order.DELIVERY_DELIVERY])
     address = serializers.CharField(required=False, allow_blank=True)
@@ -249,6 +250,21 @@ class CreateOrderSerializer(serializers.Serializer):
     coupon_code = serializers.CharField(max_length=40, required=False, allow_blank=True)
 
     def validate(self, attrs):
+        admin_order = bool(attrs.get('admin_order'))
+        allow_admin_order = bool(self.context.get('allow_admin_order'))
+
+        if admin_order and not allow_admin_order:
+            raise serializers.ValidationError({
+                'admin_order': 'Valid admin authentication is required.'
+            })
+
+        if not admin_order:
+            phone = str(attrs.get('customer_phone') or '').strip()
+            if not phone:
+                raise serializers.ValidationError({
+                    'customer_phone': 'Phone is required for customer orders.'
+                })
+
         if attrs['delivery_type'] == Order.DELIVERY_DELIVERY:
             if not attrs.get('address'):
                 raise serializers.ValidationError({'address': 'Address is required for delivery orders.'})
@@ -300,20 +316,42 @@ class CreateOrderSerializer(serializers.Serializer):
     @transaction.atomic
     def create(self, validated_data):
         items_data = validated_data.pop('items')
-        phone = validated_data['customer_phone']
-        customer, _ = Customer.objects.get_or_create(phone=phone)
-        customer.name = validated_data.get('customer_name', customer.name)
-        customer.email = validated_data.get('customer_email', customer.email)
-        if validated_data.get('address'):
-            customer.default_address = validated_data.get('address')
-        customer.total_orders += 1
-        customer.last_order_at = timezone.now()
-        customer.save()
+        admin_order = bool(validated_data.pop('admin_order', False))
+        phone = str(validated_data.get('customer_phone') or '').strip()
+        customer = None
 
-        if validated_data.get('address'):
-            CustomerAddress.objects.get_or_create(customer=customer, address_text=validated_data.get('address'), defaults={'city': 'Salamanca', 'is_default': True})
+        if not admin_order:
+            customer, _ = Customer.objects.get_or_create(phone=phone)
+            customer.name = validated_data.get('customer_name', customer.name)
+            customer.email = validated_data.get('customer_email', customer.email)
+            if validated_data.get('address'):
+                customer.default_address = validated_data.get('address')
+            customer.total_orders += 1
+            customer.last_order_at = timezone.now()
+            customer.save()
 
-        order = Order.objects.create(customer=customer, customer_name=validated_data.get('customer_name', ''), customer_phone=phone, customer_email=validated_data.get('customer_email', ''), delivery_type=validated_data['delivery_type'], address=validated_data.get('address', ''), delivery_latitude=validated_data.get('delivery_latitude'), delivery_longitude=validated_data.get('delivery_longitude'), route_distance_km=validated_data.get('route_distance_km'), route_duration_min=validated_data.get('route_duration_min'), route_provider='OSRM demo' if validated_data.get('route_distance_km') else '', note=validated_data.get('note', ''), payment_method=validated_data['payment_method'])
+            if validated_data.get('address'):
+                CustomerAddress.objects.get_or_create(
+                    customer=customer,
+                    address_text=validated_data.get('address'),
+                    defaults={'city': 'Salamanca', 'is_default': True},
+                )
+
+        order = Order.objects.create(
+            customer=customer,
+            customer_name='' if admin_order else validated_data.get('customer_name', ''),
+            customer_phone='' if admin_order else phone,
+            customer_email='' if admin_order else validated_data.get('customer_email', ''),
+            delivery_type=validated_data['delivery_type'],
+            address=validated_data.get('address', ''),
+            delivery_latitude=validated_data.get('delivery_latitude'),
+            delivery_longitude=validated_data.get('delivery_longitude'),
+            route_distance_km=validated_data.get('route_distance_km'),
+            route_duration_min=validated_data.get('route_duration_min'),
+            route_provider='OSRM demo' if validated_data.get('route_distance_km') else '',
+            note=validated_data.get('note', ''),
+            payment_method=validated_data['payment_method'],
+        )
         subtotal = Decimal('0.00')
         for item_data in items_data:
             menu_item = MenuItem.objects.get(id=item_data['menu_item_id'], is_active=True, is_available=True)

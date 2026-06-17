@@ -448,7 +448,14 @@ def test_customer_push(request):
 
 @api_view(['POST'])
 def create_order(request):
-    serializer = CreateOrderSerializer(data=request.data)
+    admin_user = get_admin_user_from_request(request)
+    serializer = CreateOrderSerializer(
+        data=request.data,
+        context={
+            'request': request,
+            'allow_admin_order': bool(admin_user),
+        },
+    )
     serializer.is_valid(raise_exception=True)
     order = serializer.save()
 
