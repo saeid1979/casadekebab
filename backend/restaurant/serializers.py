@@ -235,7 +235,7 @@ class OrderItemInputSerializer(serializers.Serializer):
 class CreateOrderSerializer(serializers.Serializer):
     customer_name = serializers.CharField(max_length=160, required=False, allow_blank=True)
     customer_phone = serializers.CharField(max_length=30, required=False, allow_blank=True)
-    admin_order = serializers.BooleanField(required=False, default=False, write_only=True)
+    admin_collection = serializers.BooleanField(required=False, default=False, write_only=True)
     customer_email = serializers.EmailField(required=False, allow_blank=True)
     delivery_type = serializers.ChoiceField(choices=[Order.DELIVERY_COLLECTION, Order.DELIVERY_DELIVERY])
     address = serializers.CharField(required=False, allow_blank=True)
@@ -250,20 +250,25 @@ class CreateOrderSerializer(serializers.Serializer):
     coupon_code = serializers.CharField(max_length=40, required=False, allow_blank=True)
 
     def validate(self, attrs):
-        admin_order = bool(attrs.get('admin_order'))
-        allow_admin_order = bool(self.context.get('allow_admin_order'))
+        admin_collection = bool(attrs.get('admin_collection'))
+        allow_admin_collection = bool(self.context.get('allow_admin_collection'))
 
-        if admin_order and not allow_admin_order:
-            raise serializers.ValidationError({
-                'admin_order': 'Valid admin authentication is required.'
-            })
-
-        if not admin_order:
+        if admin_collection:
+            if not allow_admin_collection:
+                raise serializers.ValidationError({
+                    'admin_collection': 'Valid admin authentication is required.'
+                })
+            if attrs.get('delivery_type') != Order.DELIVERY_COLLECTION:
+                raise serializers.ValidationError({
+                    'admin_collection': 'Admin checkout without customer identity is only allowed for collection orders.'
+                })
+        else:
             phone = str(attrs.get('customer_phone') or '').strip()
             if not phone:
-                raise serializers.ValidationError({
-                    'customer_phone': 'Phone is required for customer orders.'
-                })
+                raise serializers.ValidationError({'customer_phone': 'Phone is required.'})
+            name = str(attrs.get('customer_name') or '').strip()
+            if not name:
+                raise serializers.ValidationError({'customer_name': 'Name is required.'})
 
         if attrs['delivery_type'] == Order.DELIVERY_DELIVERY:
             if not attrs.get('address'):
@@ -316,11 +321,11 @@ class CreateOrderSerializer(serializers.Serializer):
     @transaction.atomic
     def create(self, validated_data):
         items_data = validated_data.pop('items')
-        admin_order = bool(validated_data.pop('admin_order', False))
+        admin_collection = bool(validated_data.pop('admin_collection', False))
         phone = str(validated_data.get('customer_phone') or '').strip()
         customer = None
 
-        if not admin_order:
+        if not admin_collection:
             customer, _ = Customer.objects.get_or_create(phone=phone)
             customer.name = validated_data.get('customer_name', customer.name)
             customer.email = validated_data.get('customer_email', customer.email)
@@ -339,9 +344,9 @@ class CreateOrderSerializer(serializers.Serializer):
 
         order = Order.objects.create(
             customer=customer,
-            customer_name='' if admin_order else validated_data.get('customer_name', ''),
-            customer_phone='' if admin_order else phone,
-            customer_email='' if admin_order else validated_data.get('customer_email', ''),
+            customer_name='' if admin_collection else validated_data.get('customer_name', ''),
+            customer_phone='' if admin_collection else phone,
+            customer_email='' if admin_collection else validated_data.get('customer_email', ''),
             delivery_type=validated_data['delivery_type'],
             address=validated_data.get('address', ''),
             delivery_latitude=validated_data.get('delivery_latitude'),

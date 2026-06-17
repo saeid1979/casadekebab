@@ -492,7 +492,8 @@ function App() {
   const initialCategoryOpenedRef = useRef(false);
   const [menuSearchOpen, setMenuSearchOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
-  const isAdminCheckout = Boolean(getAdminToken() && getAdminUser());
+  const isAuthenticatedAdmin = Boolean(getAdminToken() && getAdminUser());
+  const isAdminCollection = isAuthenticatedAdmin && form.delivery_type === 'collection';
 
   useEffect(() => {
     axios.get(`${API_BASE}/menu/`).then(res => {
@@ -779,18 +780,17 @@ function App() {
     const orderPhone = sessionCustomer?.phone || phone;
 
     if (!cart.length) return setMessage('La cesta está vacía.');
-    if (!isAdminCheckout && !form.name.trim()) return setMessage('Escribe el nombre del cliente.');
-    if (!isAdminCheckout && normalizePhoneDigits(orderPhone).length !== 9) return setMessage('Escribe un número de teléfono válido.');
-    if (form.delivery_type === 'delivery' && !form.address.trim()) return setMessage('La dirección es obligatoria para entrega a domicilio.');
-    if (form.delivery_type === 'delivery' && !deliveryAllowed) return setMessage(`Esta dirección está fuera de la zona de reparto (${DEFAULT_DELIVERY_RADIUS_KM} km).`);
 
-    // El administrador puede registrar directamente el pedido sin nombre,
-    // teléfono ni código SMS. El backend vuelve a comprobar el token admin.
-    if (isAdminCheckout) {
-      setMessage('Registrando pedido desde Admin sin solicitar datos del cliente...');
+    if (isAdminCollection) {
+      setMessage('Registrando pedido de recogida desde Admin sin nombre, teléfono ni código SMS...');
       await finalizeOrderAfterOtp('', true);
       return;
     }
+
+    if (!form.name.trim()) return setMessage('Escribe el nombre del cliente.');
+    if (normalizePhoneDigits(orderPhone).length !== 9) return setMessage('Escribe un número de teléfono válido.');
+    if (form.delivery_type === 'delivery' && !form.address.trim()) return setMessage('La dirección es obligatoria para entrega a domicilio.');
+    if (form.delivery_type === 'delivery' && !deliveryAllowed) return setMessage(`Esta dirección está fuera de la zona de reparto (${DEFAULT_DELIVERY_RADIUS_KM} km).`);
 
     // El cliente que ya inició sesión ya verificó su teléfono.
     // Para él no se vuelve a enviar OTP al confirmar cada pedido.
@@ -860,17 +860,17 @@ function App() {
     }
   }
 
-  async function finalizeOrderAfterOtp(verifiedPhone = '', adminCheckout = isAdminCheckout) {
+  async function finalizeOrderAfterOtp(verifiedPhone = '', adminCollection = isAdminCollection) {
     if (form.payment_method === 'online') {
       setMessage('El pago online todavía no está disponible. La infraestructura bancaria BBVA está en preparación y no se ha registrado ningún pedido.');
       return;
     }
 
     try {
-      const orderPhone = adminCheckout
+      const orderPhone = adminCollection
         ? ''
         : (verifiedPhone || customer?.phone || getSessionCustomer()?.phone || phone);
-      if (!adminCheckout && normalizePhoneDigits(orderPhone).length !== 9) return setMessage('Escribe un número de teléfono válido.');
+      if (!adminCollection && normalizePhoneDigits(orderPhone).length !== 9) return setMessage('Escribe un número de teléfono válido.');
       if (!cart.length) return setMessage('La cesta está vacía.');
       if (form.delivery_type === 'delivery' && !form.address.trim()) return setMessage('La dirección es obligatoria para entrega a domicilio.');
 
@@ -1029,9 +1029,9 @@ function App() {
       }
 
       const payload = {
-        admin_order: adminCheckout,
-        customer_name: adminCheckout ? '' : form.name,
-        customer_phone: adminCheckout ? '' : orderPhone,
+        admin_collection: adminCollection,
+        customer_name: adminCollection ? '' : form.name,
+        customer_phone: adminCollection ? '' : orderPhone,
         delivery_type: form.delivery_type,
         address: resolvedAddress,
         delivery_latitude: resolvedPoint?.lat == null ? null : Number(Number(resolvedPoint.lat).toFixed(7)),
@@ -1203,7 +1203,11 @@ function App() {
     {checkoutOpen && <Modal onClose={() => setCheckoutOpen(false)} className="checkout-modal checkout-details-modal direct-checkout-modal">
       <div className="checkout-details-head">
         <h2>Finalizar pedido</h2>
-        <p>{isAdminCheckout ? 'Pedido creado por Admin: no se requiere nombre, teléfono ni código SMS.' : 'Completa tus datos para confirmar el pedido.'}</p>
+        <p>
+          {isAdminCollection
+            ? 'Recogida creada por Admin: no se requiere nombre, teléfono ni código SMS.'
+            : 'Completa nombre, teléfono y dirección. La entrega requiere verificación por SMS.'}
+        </p>
       </div>
 
       <div className="delivery-choice-header direct-choice-header">
@@ -1211,7 +1215,7 @@ function App() {
         <button className={form.delivery_type === 'collection' ? 'choice-tab active' : 'choice-tab'} onClick={() => setForm({...form, delivery_type:'collection', address: RESTAURANT_ADDRESS, floor: '', payment_method: form.payment_method === 'card_delivery' ? 'store' : form.payment_method})}>🛍️ Recoger</button>
       </div>
 
-      {!isAdminCheckout && <>
+      {!isAdminCollection && <>
         <input placeholder="Nombre" value={form.name} onChange={e => setForm({...form, name:e.target.value})}/>
         <input
           placeholder="Teléfono"

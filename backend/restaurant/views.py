@@ -453,7 +453,7 @@ def create_order(request):
         data=request.data,
         context={
             'request': request,
-            'allow_admin_order': bool(admin_user),
+            'allow_admin_collection': bool(admin_user),
         },
     )
     serializer.is_valid(raise_exception=True)
