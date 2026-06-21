@@ -55,6 +55,7 @@ from .views import (
     customer_orders,
 
     dashboard_summary,
+    admin_dynamic_reports,
 
     admin_customers,
 
@@ -315,6 +316,7 @@ urlpatterns = [
     # Dashboard
 
     path('dashboard/summary/', dashboard_summary, name='dashboard-summary'),
+    path('admin/reports/dynamic/', admin_dynamic_reports, name='admin-dynamic-reports'),
 
     path('admin/customers/', admin_customers, name='admin-customers'),
 

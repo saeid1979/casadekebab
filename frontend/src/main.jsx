@@ -448,34 +448,6 @@ function Header({ title = 'Casa de Kebab Turco', subtitle = RESTAURANT_ADDRESS, 
         <strong>{title}</strong>
         <span>{subtitle}</span>
         <span className="header-phone-line">Teléfono: {RESTAURANT_PHONE_1} · {RESTAURANT_PHONE_2}</span>
-        <div className="restaurant-socials" onClick={event => event.stopPropagation()}>
-          <a
-            className="restaurant-social-link whatsapp-link"
-            href="https://wa.me/34617664656"
-            target="_blank"
-            rel="noreferrer"
-            title="WhatsApp Casa de Kebab Turco: 617664656"
-            aria-label="Abrir WhatsApp de Casa de Kebab Turco"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M20.5 3.5A11.8 11.8 0 0 0 12 0C5.4 0 .1 5.3.1 11.9c0 2.1.6 4.1 1.6 5.8L0 24l6.5-1.7a11.9 11.9 0 0 0 5.5 1.4h.1c6.6 0 11.9-5.3 11.9-11.9 0-3.2-1.3-6.1-3.5-8.3ZM12 21.7h-.1a9.9 9.9 0 0 1-5.1-1.4l-.4-.2-3.9 1 1-3.8-.2-.4a9.8 9.8 0 1 1 8.7 4.8Zm5.4-7.4c-.3-.2-1.8-.9-2.1-1-.3-.1-.5-.2-.7.2-.2.3-.8 1-.9 1.2-.2.2-.3.2-.6.1-1.9-.9-3.1-1.6-4.3-3.7-.3-.5.3-.5.9-1.5.1-.2.1-.4 0-.6-.1-.1-.7-1.6-.9-2.2-.3-.7-.6-.6-.8-.6h-.7c-.3 0-.7.1-1 .5-.4.4-1.3 1.3-1.3 3.2 0 1.9 1.4 3.7 1.6 3.9.2.3 2.7 4.1 6.5 5.8.9.4 1.6.7 2.2.9.9.3 1.8.3 2.5.2.8-.1 1.8-.7 2-1.4.3-.7.3-1.3.2-1.4-.1-.1-.2-.2-.5-.3Z"/>
-            </svg>
-            <span>WhatsApp: 617 664 656</span>
-          </a>
-          <a
-            className="restaurant-social-link instagram-link"
-            href="https://instagram.com/casadekebabturco"
-            target="_blank"
-            rel="noreferrer"
-            title="Instagram: @casadekebabturco"
-            aria-label="Abrir Instagram de Casa de Kebab Turco"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M7.1 0h9.8C20.8 0 24 3.2 24 7.1v9.8c0 3.9-3.2 7.1-7.1 7.1H7.1C3.2 24 0 20.8 0 16.9V7.1C0 3.2 3.2 0 7.1 0Zm-.3 2.4a4.4 4.4 0 0 0-4.4 4.4v10.4a4.4 4.4 0 0 0 4.4 4.4h10.4a4.4 4.4 0 0 0 4.4-4.4V6.8a4.4 4.4 0 0 0-4.4-4.4H6.8Zm11.7 1.8a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8ZM12 5.8A6.2 6.2 0 1 1 12 18.2 6.2 6.2 0 0 1 12 5.8Zm0 2.4a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"/>
-            </svg>
-            <span>@casadekebabturco</span>
-          </a>
-        </div>
       </div>
     </div>
     <nav>
@@ -2893,6 +2865,24 @@ function AdminLoginApp() {
   </div>;
 }
 
+function ReportBars({ rows = [], labelKey = 'label', valueKey = 'revenue', moneyValues = false, emptyText = 'Sin datos para este filtro.' }) {
+  const maxValue = Math.max(...rows.map(row => Number(row?.[valueKey] || 0)), 1);
+  if (!rows.length) return <p className="muted">{emptyText}</p>;
+  return <div className="report-bars">
+    {rows.map((row, index) => {
+      const value = Number(row?.[valueKey] || 0);
+      const width = Math.max(4, Math.round((value / maxValue) * 100));
+      return <div className="report-bar-row" key={`${row?.[labelKey] || 'row'}-${index}`}>
+        <div className="report-bar-label">
+          <span>{row?.[labelKey] || '-'}</span>
+          <b>{moneyValues ? money(value) : value}</b>
+        </div>
+        <div className="report-bar-track"><div className="report-bar-fill" style={{ width: `${width}%` }}></div></div>
+      </div>;
+    })}
+  </div>;
+}
+
 function DashboardApp() {
   usePageChrome();
   if (!getAdminToken()) return <AdminLoginApp />;
@@ -2949,6 +2939,73 @@ function DashboardApp() {
   const [systemHealth, setSystemHealth] = useState(null);
   const [systemBackups, setSystemBackups] = useState([]);
   const [backupWorking, setBackupWorking] = useState(false);
+  const [reportData, setReportData] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportFilters, setReportFilters] = useState(() => {
+    const today = new Date();
+    const before = new Date(today);
+    before.setDate(before.getDate() - 29);
+    return { date_from: before.toISOString().slice(0, 10), date_to: today.toISOString().slice(0, 10), delivery_type: '', payment_method: '', rider_id: '', status: '' };
+  });
+
+  function reportQueryString() {
+    const params = new URLSearchParams();
+    Object.entries(reportFilters).forEach(([key, value]) => {
+      if (String(value || '').trim()) params.set(key, value);
+    });
+    return params.toString();
+  }
+
+  async function loadDynamicReports() {
+    try {
+      setReportLoading(true);
+      const response = await axios.get(`${API_BASE}/admin/reports/dynamic/?${reportQueryString()}`);
+      setReportData(response.data || null);
+      setMessage('');
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudieron cargar los reportes dinámicos.');
+    } finally {
+      setReportLoading(false);
+    }
+  }
+
+  function setQuickReportRange(days) {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(start.getDate() - (days - 1));
+    setReportFilters(current => ({ ...current, date_from: start.toISOString().slice(0, 10), date_to: today.toISOString().slice(0, 10) }));
+  }
+
+  function exportDynamicReportCsv() {
+    if (!reportData) return;
+    const lines = [
+      ['Casa de Kebab Turco - Reporte dinámico'],
+      ['Desde', reportData.filters?.date_from || ''],
+      ['Hasta', reportData.filters?.date_to || ''],
+      [],
+      ['Indicador', 'Valor'],
+      ['Pedidos', reportData.metrics?.orders_count || 0],
+      ['Facturación', reportData.metrics?.revenue || 0],
+      ['Ticket medio', reportData.metrics?.average_order || 0],
+      ['Entregas', reportData.metrics?.delivery_orders || 0],
+      ['Recogidas', reportData.metrics?.collection_orders || 0],
+      ['Cancelados', reportData.metrics?.cancelled_orders || 0],
+      [],
+      ['Producto', 'Unidades', 'Ingresos'],
+      ...(reportData.top_items || []).map(x => [x.name, x.quantity, x.revenue]),
+      [],
+      ['Día', 'Pedidos', 'Ingresos'],
+      ...(reportData.daily_sales || []).map(x => [x.day, x.orders, x.revenue]),
+    ];
+    const csv = '\ufeff' + lines.map(row => row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(';')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `reporte-casa-kebab-${reportData.filters?.date_from || 'inicio'}-${reportData.filters?.date_to || 'fin'}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function loadAdminPanel() {
     try {
@@ -3391,6 +3448,7 @@ function DashboardApp() {
     ['riders','Repartidores'],
     ['tracking','Mapa repartidores en vivo'],
     ['customers','Clientes'],
+    ['reports','Reportes dinámicos'],
     ['accounting','Contabilidad'],
     ['system','Sistema / Backup'],
     ['config','Configuración'],
@@ -3418,7 +3476,7 @@ function DashboardApp() {
       </section>
 
       <nav className="admin-tabs">
-        {tabs.map(([key,label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>{label}</button>)}
+        {tabs.map(([key,label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => { setTab(key); if (key === 'reports') window.setTimeout(loadDynamicReports, 0); }}>{label}</button>)}
       </nav>
 
       {data && <section className="admin-metrics-grid">
@@ -3569,6 +3627,61 @@ function DashboardApp() {
 
       {tab === 'customers' && <section className="admin-card"><h2>Clientes</h2><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Cliente</th><th>Teléfono</th><th>Dirección</th><th>Pedidos</th><th>Total gastado</th><th>Último pedido</th></tr></thead><tbody>{customers.map(c => <tr key={c.id}><td><b>{c.name || 'Sin nombre'}</b><small>{c.email}</small></td><td>{c.phone}</td><td>{c.default_address || '-'}</td><td>{c.total_orders}</td><td>{money(c.total_spent)}</td><td>{c.last_order_at ? new Date(c.last_order_at).toLocaleString() : '-'}</td></tr>)}</tbody></table></div></section>}
 
+
+
+      {tab === 'reports' && <section className="dynamic-reports-page">
+        <section className="admin-card report-filter-card">
+          <div className="report-heading-row">
+            <div>
+              <span className="admin-kicker">Business Intelligence</span>
+              <h2>Reportes dinámicos</h2>
+              <p className="muted">Filtra ventas, productos, clientes, pagos y rendimiento de repartidores por periodo.</p>
+            </div>
+            <div className="report-header-actions">
+              <button type="button" className="mini-action" onClick={loadDynamicReports} disabled={reportLoading}>{reportLoading ? 'Actualizando...' : 'Actualizar'}</button>
+              <button type="button" className="mini-action secondary-action" onClick={exportDynamicReportCsv} disabled={!reportData}>Exportar CSV</button>
+            </div>
+          </div>
+          <div className="report-quick-ranges">
+            <button type="button" onClick={() => setQuickReportRange(1)}>Hoy</button>
+            <button type="button" onClick={() => setQuickReportRange(7)}>7 días</button>
+            <button type="button" onClick={() => setQuickReportRange(30)}>30 días</button>
+            <button type="button" onClick={() => setQuickReportRange(90)}>90 días</button>
+          </div>
+          <div className="report-filters-grid">
+            <label>Desde<input type="date" value={reportFilters.date_from} onChange={e => setReportFilters({...reportFilters, date_from: e.target.value})} /></label>
+            <label>Hasta<input type="date" value={reportFilters.date_to} onChange={e => setReportFilters({...reportFilters, date_to: e.target.value})} /></label>
+            <label>Tipo de pedido<select value={reportFilters.delivery_type} onChange={e => setReportFilters({...reportFilters, delivery_type: e.target.value})}><option value="">Todos</option><option value="collection">Recoger</option><option value="delivery">Entregar</option></select></label>
+            <label>Pago<select value={reportFilters.payment_method} onChange={e => setReportFilters({...reportFilters, payment_method: e.target.value})}><option value="">Todos</option><option value="cash">Efectivo</option><option value="card_delivery">Tarjeta</option><option value="store">En tienda</option><option value="online">Online</option></select></label>
+            <label>Repartidor<select value={reportFilters.rider_id} onChange={e => setReportFilters({...reportFilters, rider_id: e.target.value})}><option value="">Todos</option>{riders.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
+            <label>Estado<select value={reportFilters.status} onChange={e => setReportFilters({...reportFilters, status: e.target.value})}><option value="">Todos</option><option value="pending">Pendiente</option><option value="accepted">Aceptado</option><option value="preparing">Preparando</option><option value="out_for_delivery">En reparto</option><option value="delivered">Entregado</option><option value="cancelled">Cancelado</option></select></label>
+          </div>
+        </section>
+
+        {!reportData && !reportLoading && <section className="admin-card report-empty-state"><h2>Elige filtros y pulsa “Actualizar”</h2><p className="muted">El informe se actualiza con los pedidos guardados en la base de datos.</p></section>}
+
+        {reportData && <>
+          <section className="report-kpi-grid">
+            <article><span>Facturación</span><b>{money(reportData.metrics?.revenue)}</b><small>{reportData.metrics?.orders_count || 0} pedidos válidos</small></article>
+            <article><span>Ticket medio</span><b>{money(reportData.metrics?.average_order)}</b><small>Sin pedidos cancelados</small></article>
+            <article><span>Recoger / Entregar</span><b>{reportData.metrics?.collection_orders || 0} / {reportData.metrics?.delivery_orders || 0}</b><small>Pedidos por tipo</small></article>
+            <article><span>Cancelados</span><b>{reportData.metrics?.cancelled_orders || 0}</b><small>{reportData.metrics?.cancel_rate || 0}% del periodo</small></article>
+            <article><span>Clientes únicos</span><b>{reportData.metrics?.unique_customers || 0}</b><small>Con teléfono registrado</small></article>
+            <article><span>Descuentos</span><b>{money(reportData.metrics?.discount_total)}</b><small>Aplicados al periodo</small></article>
+          </section>
+          <section className="report-grid-two">
+            <article className="admin-card"><h2>Ventas por día</h2><ReportBars rows={reportData.daily_sales || []} labelKey="day" valueKey="revenue" moneyValues /></article>
+            <article className="admin-card"><h2>Productos más vendidos</h2><ReportBars rows={reportData.top_items || []} labelKey="name" valueKey="quantity" /></article>
+            <article className="admin-card"><h2>Estados de pedido</h2><ReportBars rows={reportData.status_breakdown || []} labelKey="label" valueKey="count" /></article>
+            <article className="admin-card"><h2>Métodos de pago</h2><ReportBars rows={reportData.payment_breakdown || []} labelKey="label" valueKey="revenue" moneyValues /></article>
+          </section>
+          <section className="report-grid-two">
+            <article className="admin-card"><h2>Horas de mayor actividad</h2><ReportBars rows={reportData.hourly_sales || []} labelKey="hour" valueKey="orders" /></article>
+            <article className="admin-card"><h2>Rendimiento de repartidores</h2><div className="report-table-wrap"><table className="admin-table"><thead><tr><th>Repartidor</th><th>Pedidos</th><th>Entregados</th><th>Ventas</th></tr></thead><tbody>{(reportData.rider_performance || []).map(row => <tr key={row.id}><td><b>{row.name}</b></td><td>{row.orders}</td><td>{row.delivered}</td><td>{money(row.revenue)}</td></tr>)}{!(reportData.rider_performance || []).length && <tr><td colSpan="4" className="muted">No hay datos de repartidores en este periodo.</td></tr>}</tbody></table></div></article>
+          </section>
+          <section className="admin-card"><h2>Clientes principales</h2><div className="report-table-wrap"><table className="admin-table"><thead><tr><th>Cliente</th><th>Teléfono</th><th>Pedidos</th><th>Gastado</th><th>Último pedido</th></tr></thead><tbody>{(reportData.top_customers || []).map((row, index) => <tr key={`${row.phone}-${index}`}><td><b>{row.name || 'Sin nombre'}</b></td><td>{row.phone || '-'}</td><td>{row.orders}</td><td>{money(row.revenue)}</td><td>{row.last_order ? new Date(row.last_order).toLocaleString() : '-'}</td></tr>)}{!(reportData.top_customers || []).length && <tr><td colSpan="5" className="muted">No hay clientes con pedidos en este periodo.</td></tr>}</tbody></table></div></section>
+        </>}
+      </section>}
 
       {tab === 'accounting' && <section className="partner-accounting-page">
         <section className="accounting-summary-grid">
