@@ -447,7 +447,6 @@ function Header({ title = 'Casa de Kebab Turco', subtitle = RESTAURANT_ADDRESS, 
       <div className="brand-text">
         <strong>{title}</strong>
         <span>{subtitle}</span>
-        <span className="brand-phone">Teléfono: 923058275 · 617664656</span>
         <span className="header-phone-line">Teléfono: {RESTAURANT_PHONE_1} · {RESTAURANT_PHONE_2}</span>
       </div>
     </div>
