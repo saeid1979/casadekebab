@@ -2700,56 +2700,72 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
   }
 }
 
-/* v15 restaurant WhatsApp + Instagram header links */
+/* v15.1 restaurant WhatsApp + Instagram header links: larger and more readable */
 .restaurant-socials{
   display:flex;
   flex-wrap:wrap;
   align-items:center;
-  gap:7px;
-  margin-top:8px;
+  gap:9px;
+  margin-top:10px;
+}
+.brand .header-phone-line{
+  font-size:15px !important;
+  font-weight:800 !important;
+  color:#7b1f18 !important;
+  letter-spacing:.01em;
 }
 .restaurant-social-link{
   display:inline-flex;
   align-items:center;
-  gap:6px;
-  min-height:28px;
-  padding:5px 9px;
+  gap:8px;
+  min-height:34px;
+  padding:7px 12px;
   border-radius:999px;
   border:1px solid transparent;
   text-decoration:none;
   font-family:'Inter',Arial,sans-serif;
-  font-size:12px !important;
-  font-weight:800;
-  line-height:1.15;
+  font-size:14px !important;
+  font-weight:900 !important;
+  line-height:1.2;
+  letter-spacing:.01em;
   transition:transform .18s ease, box-shadow .18s ease, background .18s ease;
 }
 .restaurant-social-link svg{
-  width:16px;
-  height:16px;
+  width:20px;
+  height:20px;
   fill:currentColor;
   flex:0 0 auto;
 }
 .restaurant-social-link:hover{
   transform:translateY(-1px);
-  box-shadow:0 7px 16px rgba(0,0,0,.12);
+  box-shadow:0 8px 18px rgba(0,0,0,.14);
 }
 .whatsapp-link{
-  color:#0a7751 !important;
-  background:#eafaf2;
-  border-color:#b9e8d0;
+  color:#08734d !important;
+  background:#e6f9ef;
+  border-color:#9bddbc;
 }
 .instagram-link{
-  color:#a82474 !important;
+  color:#a5156d !important;
   background:#fff0f7;
-  border-color:#f1c7df;
+  border-color:#eca9cf;
 }
 @media(max-width:900px){
   .restaurant-socials{
-    margin-top:5px;
+    gap:7px;
+    margin-top:7px;
+  }
+  .brand .header-phone-line{
+    font-size:14px !important;
   }
   .restaurant-social-link{
-    font-size:11px !important;
-    padding:5px 8px;
+    min-height:32px;
+    font-size:13px !important;
+    padding:6px 10px;
+  }
+  .restaurant-social-link svg{
+    width:18px;
+    height:18px;
   }
 }
 
