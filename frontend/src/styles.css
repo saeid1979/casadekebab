@@ -1224,7 +1224,7 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
 .chips .search-chip{min-width:46px;font-size:20px;line-height:1}
 .accordion-cat{padding-top:0;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:150px}
 .cat-toggle{width:100%;border:0;background:transparent;padding:24px 0 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:pointer;text-align:left;color:#111}
-.cat-toggle span:first-child{font-family:'Poppins','Inter',Arial,sans-serif;font-size:27px;font-weight:700;letter-spacing:.2px;text-transform:uppercase;color:#15110e}
+.cat-toggle span:first-child{font-family:'Poppins','Inter',Arial,sans-serif;font-size:27px;font-weight:700;letter-spacing:.2px;text-transform:none;color:#15110e}
 .cat-arrow{width:42px;height:42px;border-radius:50%;background:#f0eeee;display:inline-flex;align-items:center;justify-content:center;font-size:28px;line-height:1;font-weight:700;color:#161616;flex:0 0 42px;transition:transform .2s ease, background .2s ease}
 .cat-toggle:hover .cat-arrow{background:#e8e1dc}
 .accordion-cat.is-open .cat-arrow{transform:rotate(0deg);background:#ede7e2}
