@@ -2700,3 +2700,56 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
   }
 }
 
+/* v15 restaurant WhatsApp + Instagram header links */
+.restaurant-socials{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:7px;
+  margin-top:8px;
+}
+.restaurant-social-link{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  min-height:28px;
+  padding:5px 9px;
+  border-radius:999px;
+  border:1px solid transparent;
+  text-decoration:none;
+  font-family:'Inter',Arial,sans-serif;
+  font-size:12px !important;
+  font-weight:800;
+  line-height:1.15;
+  transition:transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.restaurant-social-link svg{
+  width:16px;
+  height:16px;
+  fill:currentColor;
+  flex:0 0 auto;
+}
+.restaurant-social-link:hover{
+  transform:translateY(-1px);
+  box-shadow:0 7px 16px rgba(0,0,0,.12);
+}
+.whatsapp-link{
+  color:#0a7751 !important;
+  background:#eafaf2;
+  border-color:#b9e8d0;
+}
+.instagram-link{
+  color:#a82474 !important;
+  background:#fff0f7;
+  border-color:#f1c7df;
+}
+@media(max-width:900px){
+  .restaurant-socials{
+    margin-top:5px;
+  }
+  .restaurant-social-link{
+    font-size:11px !important;
+    padding:5px 8px;
+  }
+}
+
