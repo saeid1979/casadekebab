@@ -3007,6 +3007,112 @@ function DashboardApp() {
     URL.revokeObjectURL(url);
   }
 
+  function openAccountingPdf(reportType = 'summary') {
+    const reportLabels = {
+      summary: 'Resumen contable',
+      ledger: 'Libro de movimientos',
+      expenses: 'Informe de gastos',
+      bbva: 'Movimientos BBVA',
+      settlements: 'Liquidaciones entre socios',
+    };
+
+    const allRows = Array.isArray(financialEntries) ? financialEntries : [];
+    const rows = allRows.filter(row => {
+      if (reportType === 'expenses') return row.entry_type === 'expense';
+      if (reportType === 'bbva') return row.payment_method === 'bbva' || row.paid_by === 'bbva' || row.entry_type === 'contribution';
+      if (reportType === 'settlements') return row.entry_type === 'settlement';
+      return true;
+    });
+
+    const escapePdfHtml = value => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+
+    const reportTitle = reportLabels[reportType] || 'Reporte contable';
+    const total = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const summary = accountingSummary || {};
+    const generatedAt = new Date().toLocaleString('es-ES');
+
+    const bodyRows = rows.length
+      ? rows.map(row => `
+          <tr>
+            <td>${escapePdfHtml(row.entry_date || '-')}</td>
+            <td>${escapePdfHtml(row.title || '-')}</td>
+            <td>${escapePdfHtml(row.entry_type || '-')}</td>
+            <td>${escapePdfHtml(row.category_name || row.category?.name || '-')}</td>
+            <td>${escapePdfHtml(row.paid_by || '-')}</td>
+            <td>${escapePdfHtml(row.payment_method || '-')}</td>
+            <td>${escapePdfHtml(row.status || '-')}</td>
+            <td class="amount">${money(row.amount)}</td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="8" class="empty">No hay movimientos para este informe.</td></tr>';
+
+    const extraSummary = reportType === 'summary' ? `
+      <section class="summary-grid">
+        <article><span>Gastos este mes</span><b>${money(summary.month_expenses)}</b></article>
+        <article><span>Gastos históricos</span><b>${money(summary.total_expenses)}</b></article>
+        <article><span>Saldo BBVA</span><b>${money(summary.bbva_balance)}</b></article>
+        <article><span>Pagado por Saeid</span><b>${money(summary.saeid_expenses)}</b></article>
+        <article><span>Pagado por Ahmed</span><b>${money(summary.ahmed_expenses)}</b></article>
+        <article><span>Liquidación</span><b>${escapePdfHtml(Number(summary.settlement?.amount || 0) > 0 ? `${summary.settlement.debtor} debe ${money(summary.settlement.amount)} a ${summary.settlement.creditor}` : 'Socios equilibrados')}</b></article>
+      </section>
+    ` : '';
+
+    const popup = window.open('', '_blank', 'width=1100,height=820');
+    if (!popup) {
+      setMessage('El navegador bloqueó la ventana del PDF. Permite ventanas emergentes e inténtalo de nuevo.');
+      return;
+    }
+
+    popup.document.open();
+    popup.document.write(`<!doctype html>
+      <html lang="es">
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapePdfHtml(reportTitle)} | Casa de Kebab Turco</title>
+        <style>
+          *{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#1b1714;margin:0;background:#f4f1ed;padding:24px}
+          .sheet{max-width:1120px;margin:0 auto;background:#fff;padding:34px;border:1px solid #ddd;box-shadow:0 8px 28px rgba(0,0,0,.08)}
+          .head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;border-bottom:3px solid #8f1d18;padding-bottom:18px;margin-bottom:20px}
+          h1{margin:0 0 5px;font-size:29px;color:#611d18}h2{margin:28px 0 12px;font-size:19px}.muted{color:#6d625b;font-size:13px;margin:4px 0}
+          .summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.summary-grid article{border:1px solid #e1d5c9;border-radius:10px;padding:12px;background:#fffaf5}.summary-grid span{display:block;color:#755e50;font-size:12px;font-weight:700}.summary-grid b{display:block;font-size:17px;margin-top:6px;color:#3d2019}
+          table{width:100%;border-collapse:collapse;font-size:12px}th{background:#8f1d18;color:#fff;text-align:left;padding:9px}td{border-bottom:1px solid #eadfd5;padding:8px;vertical-align:top}.amount{text-align:right;font-weight:700}.empty{text-align:center;color:#766b63;padding:26px}
+          .total{margin-top:16px;text-align:right;font-size:16px}.total b{color:#8f1d18}
+          @media print{body{padding:0;background:#fff}.sheet{border:0;box-shadow:none;max-width:none;padding:0}@page{size:A4 landscape;margin:12mm}.no-print{display:none}}
+        </style>
+      </head>
+      <body>
+        <main class="sheet">
+          <section class="head">
+            <div>
+              <h1>Casa de Kebab Turco</h1>
+              <p class="muted">Calle García Lorca, 1 · Salamanca 37004</p>
+              <p class="muted">Informe: ${escapePdfHtml(reportTitle)}</p>
+            </div>
+            <div>
+              <p class="muted"><b>Generado:</b> ${escapePdfHtml(generatedAt)}</p>
+              <p class="muted"><b>Movimientos incluidos:</b> ${rows.length}</p>
+            </div>
+          </section>
+          ${extraSummary}
+          <h2>${escapePdfHtml(reportTitle)}</h2>
+          <table>
+            <thead><tr><th>Fecha</th><th>Título</th><th>Tipo</th><th>Categoría</th><th>Pagado por</th><th>Método</th><th>Estado</th><th>Importe</th></tr></thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+          <p class="total">Total de movimientos: <b>${money(total)}</b></p>
+          <p class="muted">Para guardar este informe como PDF, selecciona “Guardar como PDF” en la ventana de impresión.</p>
+          <button class="no-print" onclick="window.print()" style="margin-top:16px;padding:10px 14px;border:0;border-radius:8px;background:#8f1d18;color:#fff;font-weight:700;cursor:pointer">Imprimir / Guardar PDF</button>
+        </main>
+      </body></html>`);
+    popup.document.close();
+    window.setTimeout(() => popup.print(), 450);
+  }
+
   async function loadAdminPanel() {
     try {
       const [summaryRes, ordersRes, ridersRes, customersRes, catRes, itemRes, settingsRes, accountingRes, entriesRes, expenseCategoriesRes, healthRes, backupsRes] = await Promise.all([
@@ -3691,6 +3797,23 @@ function DashboardApp() {
           <article><span>Pagado desde BBVA</span><b>{money(accountingSummary?.bbva_expenses)}</b><small>Gastos comunes</small></article>
           <article className="bbva-balance-card"><span>Saldo calculado BBVA</span><b>{money(accountingSummary?.bbva_balance)}</b><small>Saldo inicial + aportaciones - gastos BBVA</small></article>
           <article className="settlement-card"><span>Liquidación 50/50</span><b>{Number(accountingSummary?.settlement?.amount || 0) > 0 ? `${accountingSummary.settlement.debtor} debe ${money(accountingSummary.settlement.amount)} a ${accountingSummary.settlement.creditor}` : 'Socios equilibrados'}</b><small>Considera gastos personales y liquidaciones registradas</small></article>
+        </section>
+
+        <section className="admin-card accounting-pdf-reports-card">
+          <div className="accounting-card-heading">
+            <div>
+              <span className="admin-kicker">Documentos</span>
+              <h2>Reportes PDF</h2>
+              <p className="muted">El informe se abre listo para imprimir o guardar como PDF desde el navegador.</p>
+            </div>
+          </div>
+          <div className="accounting-pdf-actions">
+            <button type="button" onClick={() => openAccountingPdf('summary')}>Resumen contable</button>
+            <button type="button" onClick={() => openAccountingPdf('ledger')}>Libro de movimientos</button>
+            <button type="button" onClick={() => openAccountingPdf('expenses')}>Informe de gastos</button>
+            <button type="button" onClick={() => openAccountingPdf('bbva')}>Movimientos BBVA</button>
+            <button type="button" onClick={() => openAccountingPdf('settlements')}>Liquidaciones socios</button>
+          </div>
         </section>
 
         <section className="accounting-main-grid">
