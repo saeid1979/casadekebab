@@ -136,6 +136,10 @@ from .views import (
     admin_system_backup_download,
 
     admin_system_backup_verify,
+    admin_profitability_ingredients,
+    admin_profitability_ingredient_detail,
+    admin_profitability_recipe,
+    admin_profitability_report,
 
 )
 
@@ -321,5 +325,9 @@ urlpatterns = [
     path('admin/customers/', admin_customers, name='admin-customers'),
 
     path('admin/tracking-orders/', admin_tracking_orders, name='admin-tracking-orders'),
+    path('admin/profitability/ingredients/', admin_profitability_ingredients, name='admin-profitability-ingredients'),
+    path('admin/profitability/ingredients/<int:ingredient_id>/', admin_profitability_ingredient_detail, name='admin-profitability-ingredient-detail'),
+    path('admin/profitability/recipes/<int:menu_item_id>/', admin_profitability_recipe, name='admin-profitability-recipe'),
+    path('admin/profitability/report/', admin_profitability_report, name='admin-profitability-report'),
 
 ]

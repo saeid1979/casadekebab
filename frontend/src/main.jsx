@@ -3049,6 +3049,170 @@ function ReportBars({ rows = [], labelKey = 'label', valueKey = 'revenue', money
   </div>;
 }
 
+
+function ProfitabilityPanel({
+  items = [],
+  ingredients = [],
+  report,
+  loading,
+  onRefresh,
+  onCreateIngredient,
+  onSaveRecipe,
+  onDeleteIngredient,
+}) {
+  const [ingredientForm, setIngredientForm] = useState({ name: '', unit: 'g', unit_cost: '', stock_quantity: '', reorder_level: '', supplier_name: '' });
+  const [selectedItemId, setSelectedItemId] = useState('');
+  const [recipe, setRecipe] = useState({ packaging_cost: '0', fixed_cost: '0', target_margin_percent: '55', notes: '', components: [] });
+  const [period, setPeriod] = useState(() => {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(start.getDate() - 29);
+    return { date_from: start.toISOString().slice(0, 10), date_to: today.toISOString().slice(0, 10) };
+  });
+
+  const selectedReportItem = useMemo(
+    () => (report?.items || []).find(row => String(row.menu_item_id) === String(selectedItemId)),
+    [report, selectedItemId]
+  );
+
+  useEffect(() => {
+    if (!selectedItemId && items.length) setSelectedItemId(String(items[0].id));
+  }, [items, selectedItemId]);
+
+  useEffect(() => {
+    if (!selectedItemId) return;
+    const current = (report?.items || []).find(row => String(row.menu_item_id) === String(selectedItemId));
+    setRecipe({
+      packaging_cost: String(current?.packaging_cost ?? '0'),
+      fixed_cost: String(current?.fixed_cost ?? '0'),
+      target_margin_percent: String(current?.target_margin_percent ?? '55'),
+      notes: current?.notes || '',
+      components: (current?.components || []).map(row => ({ ingredient_id: String(row.ingredient_id), quantity: String(row.quantity) })),
+    });
+  }, [selectedItemId, report]);
+
+  const addComponent = () => {
+    const first = ingredients.find(row => row.is_active);
+    if (!first) return;
+    setRecipe(current => ({ ...current, components: [...current.components, { ingredient_id: String(first.id), quantity: '' }] }));
+  };
+
+  const saveIngredient = async event => {
+    event.preventDefault();
+    await onCreateIngredient({
+      ...ingredientForm,
+      unit_cost: ingredientForm.unit_cost || '0',
+      stock_quantity: ingredientForm.stock_quantity || '0',
+      reorder_level: ingredientForm.reorder_level || '0',
+    });
+    setIngredientForm({ name: '', unit: 'g', unit_cost: '', stock_quantity: '', reorder_level: '', supplier_name: '' });
+  };
+
+  const saveRecipe = async event => {
+    event.preventDefault();
+    if (!selectedItemId) return;
+    await onSaveRecipe(selectedItemId, {
+      ...recipe,
+      components: recipe.components.filter(row => row.ingredient_id && Number(row.quantity) > 0),
+    });
+  };
+
+  return <section className="profitability-page">
+    <section className="admin-card profitability-header-card">
+      <div>
+        <span className="admin-kicker">Costes y margen</span>
+        <h2>Rentabilidad real por producto</h2>
+        <p className="muted">Calcula el coste de ingredientes, envase y coste fijo por unidad. No cambia categorías ni precios del menú.</p>
+      </div>
+      <div className="profitability-period">
+        <label>Desde<input type="date" value={period.date_from} onChange={e => setPeriod({...period, date_from: e.target.value})} /></label>
+        <label>Hasta<input type="date" value={period.date_to} onChange={e => setPeriod({...period, date_to: e.target.value})} /></label>
+        <button type="button" className="mini-action" onClick={() => onRefresh(period)} disabled={loading}>{loading ? 'Actualizando...' : 'Actualizar análisis'}</button>
+      </div>
+    </section>
+
+    <section className="profit-summary-grid">
+      <article><span>Productos configurados</span><b>{report?.summary?.configured_products || 0}</b></article>
+      <article><span>Ingresos del periodo</span><b>{money(report?.summary?.sales_revenue)}</b></article>
+      <article><span>Coste estimado vendido</span><b>{money(report?.summary?.estimated_cost_of_sales)}</b></article>
+      <article><span>Beneficio bruto estimado</span><b>{money(report?.summary?.estimated_gross_profit)}</b></article>
+      <article className={(report?.summary?.products_below_target || 0) ? 'profit-warning-card' : ''}><span>Bajo margen objetivo</span><b>{report?.summary?.products_below_target || 0}</b></article>
+    </section>
+
+    <section className="profitability-grid">
+      <article className="admin-card ingredient-manager-card">
+        <h2>Ingredientes y costes</h2>
+        <form className="profitability-form" onSubmit={saveIngredient}>
+          <input required placeholder="Ingrediente: Pollo, patatas, envase..." value={ingredientForm.name} onChange={e => setIngredientForm({...ingredientForm, name:e.target.value})} />
+          <div className="profitability-inline">
+            <select value={ingredientForm.unit} onChange={e => setIngredientForm({...ingredientForm, unit:e.target.value})}><option value="g">Gramos (g)</option><option value="ml">Mililitros (ml)</option><option value="unit">Unidad</option></select>
+            <input required type="number" min="0" step="0.0001" placeholder="Coste por unidad" value={ingredientForm.unit_cost} onChange={e => setIngredientForm({...ingredientForm, unit_cost:e.target.value})} />
+          </div>
+          <div className="profitability-inline">
+            <input type="number" min="0" step="0.01" placeholder="Stock actual (opcional)" value={ingredientForm.stock_quantity} onChange={e => setIngredientForm({...ingredientForm, stock_quantity:e.target.value})} />
+            <input type="number" min="0" step="0.01" placeholder="Alerta de reposición" value={ingredientForm.reorder_level} onChange={e => setIngredientForm({...ingredientForm, reorder_level:e.target.value})} />
+          </div>
+          <input placeholder="Proveedor (opcional)" value={ingredientForm.supplier_name} onChange={e => setIngredientForm({...ingredientForm, supplier_name:e.target.value})} />
+          <button className="pay" type="submit">Añadir ingrediente</button>
+        </form>
+        <div className="ingredient-list">
+          {ingredients.map(row => <div key={row.id} className="ingredient-row">
+            <div><b>{row.name}</b><small>{money(row.unit_cost)} / {row.unit} · Stock: {row.stock_quantity}</small></div>
+            <button type="button" onClick={() => onDeleteIngredient(row)}>Eliminar</button>
+          </div>)}
+          {!ingredients.length && <p className="muted">Añade primero los ingredientes y sus costes de compra.</p>}
+        </div>
+      </article>
+
+      <article className="admin-card recipe-editor-card">
+        <h2>Receta y coste del producto</h2>
+        <form className="profitability-form" onSubmit={saveRecipe}>
+          <label>Producto del menú
+            <select value={selectedItemId} onChange={e => setSelectedItemId(e.target.value)}>
+              {items.map(item => <option key={item.id} value={item.id}>{item.name_es} · {money(item.price)}</option>)}
+            </select>
+          </label>
+          <div className="profitability-inline">
+            <label>Envase por unidad<input type="number" min="0" step="0.01" value={recipe.packaging_cost} onChange={e => setRecipe({...recipe, packaging_cost:e.target.value})} /></label>
+            <label>Coste fijo por unidad<input type="number" min="0" step="0.01" value={recipe.fixed_cost} onChange={e => setRecipe({...recipe, fixed_cost:e.target.value})} /></label>
+          </div>
+          <label>Margen objetivo (%)<input type="number" min="0" max="100" step="0.01" value={recipe.target_margin_percent} onChange={e => setRecipe({...recipe, target_margin_percent:e.target.value})} /></label>
+          <label>Notas de receta<textarea value={recipe.notes} onChange={e => setRecipe({...recipe, notes:e.target.value})} placeholder="Ejemplo: incluye salsa blanca y roja." /></label>
+          <h3>Componentes por una unidad</h3>
+          {recipe.components.map((row, index) => <div className="recipe-component-row" key={`${row.ingredient_id}-${index}`}>
+            <select value={row.ingredient_id} onChange={e => setRecipe(current => ({...current, components: current.components.map((x,i) => i === index ? {...x, ingredient_id:e.target.value} : x)}))}>
+              {ingredients.filter(x => x.is_active).map(ingredient => <option key={ingredient.id} value={ingredient.id}>{ingredient.name} ({ingredient.unit})</option>)}
+            </select>
+            <input type="number" min="0.001" step="0.001" placeholder="Cantidad" value={row.quantity} onChange={e => setRecipe(current => ({...current, components: current.components.map((x,i) => i === index ? {...x, quantity:e.target.value} : x)}))} />
+            <button type="button" onClick={() => setRecipe(current => ({...current, components: current.components.filter((_,i) => i !== index)}))}>×</button>
+          </div>)}
+          <button type="button" className="add-recipe-component" onClick={addComponent} disabled={!ingredients.filter(x => x.is_active).length}>+ Añadir ingrediente a receta</button>
+          {selectedReportItem && <div className="recipe-live-result"><span>Coste actual estimado:</span><b>{money(selectedReportItem.total_unit_cost)}</b><span>Beneficio bruto/unidad:</span><b>{money(selectedReportItem.gross_profit_per_unit)} · {Number(selectedReportItem.margin_percent || 0).toFixed(1)}%</b></div>}
+          <button className="pay" type="submit">Guardar receta y recalcular</button>
+        </form>
+      </article>
+    </section>
+
+    <section className="admin-card profitability-report-card">
+      <h2>Informe de rentabilidad</h2>
+      <div className="admin-table-wrap">
+        <table className="admin-table profit-table">
+          <thead><tr><th>Producto</th><th>Precio</th><th>Coste unidad</th><th>Beneficio/unidad</th><th>Margen</th><th>Unidades vendidas</th><th>Ingresos</th><th>Beneficio periodo</th></tr></thead>
+          <tbody>
+            {(report?.items || []).map(row => <tr key={row.menu_item_id} className={row.margin_percent < row.target_margin_percent ? 'low-margin-row' : ''}>
+              <td><b>{row.menu_item_name}</b>{!row.has_recipe && <small>Sin ingredientes definidos</small>}</td>
+              <td>{money(row.selling_price)}</td><td>{money(row.total_unit_cost)}</td><td>{money(row.gross_profit_per_unit)}</td>
+              <td><b>{Number(row.margin_percent || 0).toFixed(1)}%</b><small>Objetivo {row.target_margin_percent}%</small></td>
+              <td>{row.units_sold}</td><td>{money(row.sales_revenue)}</td><td>{money(row.estimated_gross_profit)}</td>
+            </tr>)}
+            {!(report?.items || []).length && <tr><td colSpan="8" className="muted">Aún no hay recetas configuradas. Añade ingredientes y define una receta por producto.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </section>;
+}
+
 function DashboardApp() {
   usePageChrome();
   if (!getAdminToken()) return <AdminLoginApp />;
@@ -3105,6 +3269,9 @@ function DashboardApp() {
   const [systemHealth, setSystemHealth] = useState(null);
   const [systemBackups, setSystemBackups] = useState([]);
   const [backupWorking, setBackupWorking] = useState(false);
+  const [profitIngredients, setProfitIngredients] = useState([]);
+  const [profitabilityReport, setProfitabilityReport] = useState(null);
+  const [profitabilityLoading, setProfitabilityLoading] = useState(false);
   const [reportData, setReportData] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportFilters, setReportFilters] = useState(() => {
@@ -3277,6 +3444,57 @@ function DashboardApp() {
       </body></html>`);
     popup.document.close();
     window.setTimeout(() => popup.print(), 450);
+  }
+
+
+  async function loadProfitability(period = {}) {
+    try {
+      setProfitabilityLoading(true);
+      const params = new URLSearchParams();
+      if (period.date_from) params.set('date_from', period.date_from);
+      if (period.date_to) params.set('date_to', period.date_to);
+      const [ingredientsRes, reportRes] = await Promise.all([
+        axios.get(`${API_BASE}/admin/profitability/ingredients/`),
+        axios.get(`${API_BASE}/admin/profitability/report/?${params.toString()}`),
+      ]);
+      setProfitIngredients(ingredientsRes.data || []);
+      setProfitabilityReport(reportRes.data || null);
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo cargar el análisis de rentabilidad.');
+    } finally {
+      setProfitabilityLoading(false);
+    }
+  }
+
+  async function createProfitIngredient(payload) {
+    try {
+      await axios.post(`${API_BASE}/admin/profitability/ingredients/`, payload);
+      setMessage('Ingrediente añadido correctamente.');
+      await loadProfitability();
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo añadir el ingrediente.');
+    }
+  }
+
+  async function deleteProfitIngredient(row) {
+    if (!window.confirm(`¿Eliminar el ingrediente "${row.name}"?`)) return;
+    try {
+      await axios.delete(`${API_BASE}/admin/profitability/ingredients/${row.id}/`);
+      setMessage('Ingrediente eliminado.');
+      await loadProfitability();
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo eliminar el ingrediente.');
+    }
+  }
+
+  async function saveProfitRecipe(menuItemId, payload) {
+    try {
+      await axios.put(`${API_BASE}/admin/profitability/recipes/${menuItemId}/`, payload);
+      setMessage('Receta guardada y rentabilidad recalculada.');
+      await loadProfitability();
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo guardar la receta.');
+    }
   }
 
   async function loadAdminPanel() {
@@ -3722,6 +3940,7 @@ function DashboardApp() {
     ['customers','Clientes'],
     ['reports','Reportes dinámicos'],
     ['accounting','Contabilidad'],
+    ['profitability','Rentabilidad'],
     ['system','Sistema / Backup'],
     ['config','Configuración'],
     ['menu','Categorías / Menú'],
@@ -3954,6 +4173,19 @@ function DashboardApp() {
           <section className="admin-card"><h2>Clientes principales</h2><div className="report-table-wrap"><table className="admin-table"><thead><tr><th>Cliente</th><th>Teléfono</th><th>Pedidos</th><th>Gastado</th><th>Último pedido</th></tr></thead><tbody>{(reportData.top_customers || []).map((row, index) => <tr key={`${row.phone}-${index}`}><td><b>{row.name || 'Sin nombre'}</b></td><td>{row.phone || '-'}</td><td>{row.orders}</td><td>{money(row.revenue)}</td><td>{row.last_order ? new Date(row.last_order).toLocaleString() : '-'}</td></tr>)}{!(reportData.top_customers || []).length && <tr><td colSpan="5" className="muted">No hay clientes con pedidos en este periodo.</td></tr>}</tbody></table></div></section>
         </>}
       </section>}
+
+
+      {tab === 'profitability' && <ProfitabilityPanel
+        items={items}
+        ingredients={profitIngredients}
+        report={profitabilityReport}
+        loading={profitabilityLoading}
+        onRefresh={loadProfitability}
+        onCreateIngredient={createProfitIngredient}
+        onSaveRecipe={saveProfitRecipe}
+        onDeleteIngredient={deleteProfitIngredient}
+      />}
+
 
       {tab === 'accounting' && <section className="partner-accounting-page">
         <section className="accounting-summary-grid">

@@ -1348,3 +1348,81 @@ class SystemBackup(models.Model):
     def __str__(self):
 
         return f'{self.get_backup_type_display()} - {self.created_at:%Y-%m-%d %H:%M}'
+
+# v18 real product profitability (no Category changes)
+class Ingredient(models.Model):
+    UNIT_GRAM = 'g'
+    UNIT_ML = 'ml'
+    UNIT_UNIT = 'unit'
+    UNIT_CHOICES = [
+        (UNIT_GRAM, 'Gramos'),
+        (UNIT_ML, 'Mililitros'),
+        (UNIT_UNIT, 'Unidades'),
+    ]
+
+    name = models.CharField(max_length=140, unique=True)
+    unit = models.CharField(max_length=12, choices=UNIT_CHOICES, default=UNIT_GRAM)
+    unit_cost = models.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0.0000'))],
+        help_text='Coste por la unidad elegida: g, ml o unidad.'
+    )
+    stock_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    reorder_level = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    supplier_name = models.CharField(max_length=160, blank=True, default='')
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return f'{self.name} ({self.unit})'
+
+
+class ProductCostProfile(models.Model):
+    menu_item = models.OneToOneField(MenuItem, on_delete=models.CASCADE, related_name='cost_profile')
+    packaging_cost = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal('0.00'))
+    fixed_cost = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        help_text='Coste fijo adicional por unidad: servilletas, energía u otros.'
+    )
+    target_margin_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('55.00'))
+    notes = models.TextField(blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['menu_item__name_es']
+
+    def __str__(self):
+        return f'Coste: {self.menu_item.name_es}'
+
+
+class RecipeIngredient(models.Model):
+    profile = models.ForeignKey(ProductCostProfile, on_delete=models.CASCADE, related_name='components')
+    ingredient = models.ForeignKey(Ingredient, on_delete=models.PROTECT, related_name='recipe_components')
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        validators=[MinValueValidator(Decimal('0.001'))],
+        help_text='Cantidad usada por una unidad del producto, en la misma unidad del ingrediente.'
+    )
+
+    class Meta:
+        ordering = ['ingredient__name']
+        constraints = [
+            models.UniqueConstraint(fields=['profile', 'ingredient'], name='unique_recipe_ingredient_per_profile')
+        ]
+
+    @property
+    def line_cost(self):
+        return (self.quantity or Decimal('0.000')) * (self.ingredient.unit_cost or Decimal('0.0000'))
+
+    def __str__(self):
+        return f'{self.profile.menu_item.name_es} - {self.ingredient.name}'
+

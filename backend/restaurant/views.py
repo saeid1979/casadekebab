@@ -2565,3 +2565,242 @@ def admin_dynamic_reports(request):
         'metrics': {'orders_count':orders_count,'revenue':float(revenue),'average_order':float(average_order),'delivery_orders':valid_orders.filter(delivery_type=Order.DELIVERY_DELIVERY).count(),'collection_orders':valid_orders.filter(delivery_type=Order.DELIVERY_COLLECTION).count(),'cancelled_orders':cancelled_count,'cancel_rate':round((cancelled_count / orders.count() * 100), 1) if orders.exists() else 0,'unique_customers':valid_orders.exclude(customer_phone='').values('customer_phone').distinct().count(),'discount_total':float(discounts)},
         'daily_sales':daily_sales,'top_items':top_items,'status_breakdown':status_breakdown,'payment_breakdown':payment_breakdown,'hourly_sales':hourly_sales,'rider_performance':rider_performance,'top_customers':top_customers,
     })
+
+# v18 profitability endpoints — restricted to Admin
+def _profitability_ingredient_payload(ingredient):
+    return {
+        'id': ingredient.id,
+        'name': ingredient.name,
+        'unit': ingredient.unit,
+        'unit_cost': float(ingredient.unit_cost or 0),
+        'stock_quantity': float(ingredient.stock_quantity or 0),
+        'reorder_level': float(ingredient.reorder_level or 0),
+        'supplier_name': ingredient.supplier_name or '',
+        'is_active': bool(ingredient.is_active),
+        'updated_at': ingredient.updated_at.isoformat() if ingredient.updated_at else None,
+    }
+
+
+def _profitability_profile_payload(profile):
+    components = []
+    for component in profile.components.select_related('ingredient').all():
+        components.append({
+            'id': component.id,
+            'ingredient_id': component.ingredient_id,
+            'ingredient_name': component.ingredient.name,
+            'unit': component.ingredient.unit,
+            'unit_cost': float(component.ingredient.unit_cost or 0),
+            'quantity': float(component.quantity or 0),
+            'line_cost': float(component.line_cost or 0),
+        })
+
+    ingredient_cost = sum(Decimal(str(row['line_cost'])) for row in components)
+    total_cost = ingredient_cost + (profile.packaging_cost or Decimal('0.00')) + (profile.fixed_cost or Decimal('0.00'))
+    price = profile.menu_item.price or Decimal('0.00')
+    gross_profit = price - total_cost
+    margin = (gross_profit / price * Decimal('100.00')) if price > 0 else Decimal('0.00')
+
+    return {
+        'menu_item_id': profile.menu_item_id,
+        'menu_item_name': profile.menu_item.name_es,
+        'selling_price': float(price),
+        'packaging_cost': float(profile.packaging_cost or 0),
+        'fixed_cost': float(profile.fixed_cost or 0),
+        'target_margin_percent': float(profile.target_margin_percent or 0),
+        'notes': profile.notes or '',
+        'ingredient_cost': float(ingredient_cost),
+        'total_unit_cost': float(total_cost),
+        'gross_profit_per_unit': float(gross_profit),
+        'margin_percent': float(margin),
+        'components': components,
+    }
+
+
+@api_view(['GET', 'POST'])
+@admin_token_required
+def admin_profitability_ingredients(request):
+    from .models import Ingredient
+
+    if request.method == 'GET':
+        qs = Ingredient.objects.all().order_by('name')
+        return Response([_profitability_ingredient_payload(row) for row in qs])
+
+    data = request.data or {}
+    name = str(data.get('name') or '').strip()
+    if not name:
+        return Response({'detail': 'El nombre del ingrediente es obligatorio.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        ingredient = Ingredient.objects.create(
+            name=name,
+            unit=str(data.get('unit') or 'g'),
+            unit_cost=Decimal(str(data.get('unit_cost') or '0')),
+            stock_quantity=Decimal(str(data.get('stock_quantity') or '0')),
+            reorder_level=Decimal(str(data.get('reorder_level') or '0')),
+            supplier_name=str(data.get('supplier_name') or '').strip(),
+            is_active=bool(data.get('is_active', True)),
+        )
+    except Exception as exc:
+        return Response({'detail': f'No se pudo crear el ingrediente: {exc}'}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(_profitability_ingredient_payload(ingredient), status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH', 'DELETE'])
+@admin_token_required
+def admin_profitability_ingredient_detail(request, ingredient_id):
+    from .models import Ingredient
+
+    try:
+        ingredient = Ingredient.objects.get(id=ingredient_id)
+    except Ingredient.DoesNotExist:
+        return Response({'detail': 'Ingrediente no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        if ingredient.recipe_components.exists():
+            return Response({'detail': 'No se puede eliminar porque este ingrediente ya está usado en recetas. Desactívalo o elimina las recetas relacionadas.'}, status=status.HTTP_400_BAD_REQUEST)
+        ingredient.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    data = request.data or {}
+    allowed = ['name', 'unit', 'supplier_name', 'is_active']
+    for field in allowed:
+        if field in data:
+            setattr(ingredient, field, str(data[field]).strip() if field != 'is_active' else bool(data[field]))
+    for field in ['unit_cost', 'stock_quantity', 'reorder_level']:
+        if field in data:
+            setattr(ingredient, field, Decimal(str(data[field] or '0')))
+    try:
+        ingredient.full_clean()
+        ingredient.save()
+    except Exception as exc:
+        return Response({'detail': f'No se pudo actualizar el ingrediente: {exc}'}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(_profitability_ingredient_payload(ingredient))
+
+
+@api_view(['GET', 'PUT'])
+@admin_token_required
+def admin_profitability_recipe(request, menu_item_id):
+    from .models import Ingredient, ProductCostProfile, RecipeIngredient
+
+    try:
+        item = MenuItem.objects.get(id=menu_item_id)
+    except MenuItem.DoesNotExist:
+        return Response({'detail': 'Producto de menú no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+    profile, _ = ProductCostProfile.objects.get_or_create(menu_item=item)
+
+    if request.method == 'GET':
+        return Response(_profitability_profile_payload(profile))
+
+    data = request.data or {}
+    raw_components = data.get('components', [])
+    if not isinstance(raw_components, list):
+        return Response({'detail': 'components debe ser una lista.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    normalized = []
+    used_ids = set()
+    try:
+        for row in raw_components:
+            ingredient_id = int(row.get('ingredient_id'))
+            quantity = Decimal(str(row.get('quantity') or '0'))
+            if quantity <= 0:
+                raise ValueError('La cantidad de cada ingrediente debe ser mayor que cero.')
+            if ingredient_id in used_ids:
+                raise ValueError('Un ingrediente no puede repetirse en la misma receta.')
+            ingredient = Ingredient.objects.get(id=ingredient_id, is_active=True)
+            used_ids.add(ingredient_id)
+            normalized.append((ingredient, quantity))
+    except (ValueError, TypeError, Ingredient.DoesNotExist) as exc:
+        return Response({'detail': f'Receta inválida: {exc}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        with transaction.atomic():
+            profile.packaging_cost = Decimal(str(data.get('packaging_cost') or '0'))
+            profile.fixed_cost = Decimal(str(data.get('fixed_cost') or '0'))
+            profile.target_margin_percent = Decimal(str(data.get('target_margin_percent') or '55'))
+            profile.notes = str(data.get('notes') or '').strip()
+            profile.full_clean()
+            profile.save()
+            profile.components.all().delete()
+            RecipeIngredient.objects.bulk_create([
+                RecipeIngredient(profile=profile, ingredient=ingredient, quantity=quantity)
+                for ingredient, quantity in normalized
+            ])
+    except Exception as exc:
+        return Response({'detail': f'No se pudo guardar la receta: {exc}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    profile.refresh_from_db()
+    return Response(_profitability_profile_payload(profile))
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_profitability_report(request):
+    from datetime import timedelta
+    from django.utils.dateparse import parse_date
+    from django.db.models import Sum
+    from .models import ProductCostProfile, OrderItem
+
+    today = timezone.localdate()
+    date_from = parse_date(str(request.query_params.get('date_from') or '')) or (today - timedelta(days=29))
+    date_to = parse_date(str(request.query_params.get('date_to') or '')) or today
+    if date_from > date_to:
+        return Response({'detail': 'La fecha inicial no puede ser posterior a la final.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    sales_rows = (
+        OrderItem.objects.filter(
+            order__created_at__date__gte=date_from,
+            order__created_at__date__lte=date_to,
+        )
+        .exclude(order__status=Order.STATUS_CANCELLED)
+        .values('menu_item_id')
+        .annotate(units_sold=Sum('quantity'), sales_revenue=Sum('total'))
+    )
+    sales_by_item = {
+        row['menu_item_id']: {
+            'units_sold': int(row['units_sold'] or 0),
+            'sales_revenue': Decimal(row['sales_revenue'] or '0.00'),
+        }
+        for row in sales_rows if row['menu_item_id']
+    }
+
+    result = []
+    for profile in ProductCostProfile.objects.select_related('menu_item').prefetch_related('components__ingredient').all():
+        payload = _profitability_profile_payload(profile)
+        sales = sales_by_item.get(profile.menu_item_id, {'units_sold': 0, 'sales_revenue': Decimal('0.00')})
+        total_cost = Decimal(str(payload['total_unit_cost']))
+        units = Decimal(str(sales['units_sold']))
+        payload.update({
+            'units_sold': int(sales['units_sold']),
+            'sales_revenue': float(sales['sales_revenue']),
+            'estimated_cost_of_sales': float(total_cost * units),
+            'estimated_gross_profit': float((Decimal(str(payload['gross_profit_per_unit'])) * units)),
+            'has_recipe': bool(payload['components']),
+        })
+        result.append(payload)
+
+    result.sort(key=lambda row: (-row['estimated_gross_profit'], -row['units_sold'], row['menu_item_name']))
+    warning_items = [
+        row for row in result
+        if row['has_recipe'] and row['margin_percent'] < row['target_margin_percent']
+    ]
+
+    return Response({
+        'date_from': date_from.isoformat(),
+        'date_to': date_to.isoformat(),
+        'items': result,
+        'warnings': [{
+            'menu_item_id': row['menu_item_id'],
+            'menu_item_name': row['menu_item_name'],
+            'margin_percent': row['margin_percent'],
+            'target_margin_percent': row['target_margin_percent'],
+        } for row in warning_items],
+        'summary': {
+            'configured_products': len(result),
+            'products_below_target': len(warning_items),
+            'sales_revenue': float(sum(Decimal(str(row['sales_revenue'])) for row in result)),
+            'estimated_cost_of_sales': float(sum(Decimal(str(row['estimated_cost_of_sales'])) for row in result)),
+            'estimated_gross_profit': float(sum(Decimal(str(row['estimated_gross_profit'])) for row in result)),
+        },
+    })
+
