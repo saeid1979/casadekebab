@@ -140,6 +140,7 @@ from .views import (
     admin_profitability_ingredient_detail,
     admin_profitability_recipe,
     admin_profitability_report,
+    public_customer_menu_highlights,
 
 )
 
@@ -152,6 +153,7 @@ router.register(r'menu', MenuViewSet, basename='menu')
 
 
 urlpatterns = [
+    path('menu/customer-highlights/', public_customer_menu_highlights, name='public-customer-menu-highlights'),
 
     path('', include(router.urls)),
 

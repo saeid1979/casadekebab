@@ -2804,3 +2804,54 @@ def admin_profitability_report(request):
         },
     })
 
+@api_view(['GET'])
+def public_customer_menu_highlights(request):
+    """
+    Customer-facing menu highlights based on valid recent orders.
+    It only returns statistics and does not edit categories, prices, or menu data.
+    """
+    from datetime import timedelta
+    from django.db.models import Sum
+
+    try:
+        days = int(request.query_params.get('days', 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(7, min(days, 180))
+    start_date = timezone.localdate() - timedelta(days=days - 1)
+
+    rows = (
+        OrderItem.objects.filter(order__created_at__date__gte=start_date)
+        .exclude(order__status=Order.STATUS_CANCELLED)
+        .values('menu_item_id')
+        .annotate(units_sold=Sum('quantity'))
+    )
+    sales = {
+        str(row['menu_item_id']): int(row['units_sold'] or 0)
+        for row in rows
+        if row.get('menu_item_id')
+    }
+
+    available_items = MenuItem.objects.filter(is_active=True, is_available=True)
+    cheapest = available_items.order_by('price', 'sort_order', 'id').first()
+
+    top_seller_id = None
+    top_units = 0
+    for item_id, units in sales.items():
+        if units > top_units:
+            top_seller_id = item_id
+            top_units = units
+
+    # If no completed order exists yet, use the first active product as a safe fallback.
+    if not top_seller_id:
+        first_item = available_items.order_by('sort_order', 'id').first()
+        top_seller_id = str(first_item.id) if first_item else None
+
+    return Response({
+        'days': days,
+        'sales_by_item': sales,
+        'top_seller_id': top_seller_id,
+        'top_seller_units': top_units,
+        'lowest_price_item_id': str(cheapest.id) if cheapest else None,
+    })
+

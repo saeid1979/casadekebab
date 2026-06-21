@@ -478,7 +478,7 @@ function CustomerSmartAssistant({ menu = [], cart = [], onOpenProduct }) {
       (category.items || []).forEach(item => rows.push({ ...item, category_name: category.name_es || '' }));
     });
     return rows;
-  }, [menu]);
+  }, [customerDisplayMenu]);
 
   function buildReply(rawQuestion) {
     const query = String(rawQuestion || '').trim().toLowerCase();
@@ -626,6 +626,68 @@ function CustomerSmartAssistant({ menu = [], cart = [], onOpenProduct }) {
   </>;
 }
 
+
+function CustomerBestProducts({
+  bestSeller,
+  lowestPrice,
+  bestSellerUnits,
+  onOpenProduct,
+}) {
+  if (!bestSeller && !lowestPrice) return null;
+
+  const cards = [
+    bestSeller && {
+      type: 'popular',
+      eyebrow: 'Más vendido',
+      title: bestSeller.name_es,
+      subtitle: bestSellerUnits > 0
+        ? `${bestSellerUnits} unidades vendidas recientemente`
+        : 'Una de nuestras recomendaciones',
+      item: bestSeller,
+      icon: '🔥',
+    },
+    lowestPrice && {
+      type: 'price',
+      eyebrow: 'Mejor precio',
+      title: lowestPrice.name_es,
+      subtitle: 'La opción disponible con el precio más bajo',
+      item: lowestPrice,
+      icon: '€',
+    },
+  ].filter(Boolean);
+
+  return <section className="customer-best-products" aria-label="Los mejores productos">
+    <div className="best-products-title-row">
+      <div>
+        <span className="best-products-kicker">SELECCIÓN INTELIGENTE</span>
+        <h2>Los mejores para ti</h2>
+        <p>Popularidad real y mejor precio, actualizados con el menú disponible.</p>
+      </div>
+    </div>
+    <div className="best-products-grid">
+      {cards.map(card => <button
+        type="button"
+        className={`best-product-card ${card.type}`}
+        key={`${card.type}-${card.item.id}`}
+        onClick={() => onOpenProduct(card.item)}
+        title={`Ver ${card.item.name_es}`}
+      >
+        <div className="best-product-image-wrap">
+          <img src={getItemImage(card.item)} alt={card.item.name_es} />
+          <span className="best-product-pulse">{card.icon}</span>
+        </div>
+        <div className="best-product-copy">
+          <span className="best-product-eyebrow">{card.eyebrow}</span>
+          <b>{card.title}</b>
+          <small>{card.subtitle}</small>
+          <strong>{money(card.item.price)}</strong>
+          <em>Ver producto →</em>
+        </div>
+      </button>)}
+    </div>
+  </section>;
+}
+
 function App() {
   usePageChrome();
   const [menu, setMenu] = useState(fallbackMenu);
@@ -656,6 +718,8 @@ function App() {
   const initialCategoryOpenedRef = useRef(false);
   const [menuSearchOpen, setMenuSearchOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
+  const [customerHighlights, setCustomerHighlights] = useState({ sales_by_item: {}, top_seller_id: null, lowest_price_item_id: null, top_seller_units: 0 });
+  const [customerMenuSort, setCustomerMenuSort] = useState('popular');
   const isAuthenticatedAdmin = Boolean(getAdminToken() && getAdminUser());
   const isAdminCollection = isAuthenticatedAdmin && form.delivery_type === 'collection';
 
@@ -664,6 +728,9 @@ function App() {
       if (Array.isArray(res.data) && res.data.length) setMenu(res.data);
     }).catch(() => setMenu(fallbackMenu));
     axios.get(`${API_BASE}/settings/public/`).then(res => setSettings(res.data)).catch(() => setSettings(null));
+    axios.get(`${API_BASE}/menu/customer-highlights/?days=30`)
+      .then(res => setCustomerHighlights(res.data || { sales_by_item: {} }))
+      .catch(() => setCustomerHighlights({ sales_by_item: {} }));
   }, []);
 
   useEffect(() => {
@@ -681,8 +748,8 @@ function App() {
   useEffect(() => {
     // فقط در اولین بار بارگذاری صفحه، اولین دسته باز شود.
     // بعد از آن اگر کاربر همه دسته‌ها را بست، سیستم دوباره اولی را باز نمی‌کند.
-    if (!initialCategoryOpenedRef.current && menu?.length) {
-      setOpenCategoryId(menu[0].id);
+    if (!initialCategoryOpenedRef.current && customerDisplayMenu?.length) {
+      setOpenCategoryId(customerDisplayMenu[0].id);
       initialCategoryOpenedRef.current = true;
     }
   }, [menu]);
@@ -694,29 +761,67 @@ function App() {
     }, 60);
   }
 
+
+  const customerDisplayMenu = useMemo(() => {
+    const sales = customerHighlights?.sales_by_item || {};
+    const priceOf = item => Number(item?.price || 0);
+    const salesOf = item => Number(sales?.[item?.id] || 0);
+
+    return (menu || []).map(category => {
+      const items = [...(category.items || [])].sort((a, b) => {
+        if (customerMenuSort === 'cheap') {
+          return (priceOf(a) - priceOf(b)) || (salesOf(b) - salesOf(a));
+        }
+        if (customerMenuSort === 'value') {
+          const aScore = salesOf(a) * 10 - priceOf(a);
+          const bScore = salesOf(b) * 10 - priceOf(b);
+          return bScore - aScore;
+        }
+        return (salesOf(b) - salesOf(a)) || (priceOf(a) - priceOf(b));
+      });
+      return { ...category, items };
+    });
+  }, [menu, customerHighlights, customerMenuSort]);
+
+  const customerAllMenuItems = useMemo(
+    () => customerDisplayMenu.flatMap(category => category.items || []),
+    [customerDisplayMenu]
+  );
+
+  const customerBestSeller = useMemo(
+    () => customerAllMenuItems.find(item => String(item.id) === String(customerHighlights?.top_seller_id)) || customerAllMenuItems[0] || null,
+    [customerAllMenuItems, customerHighlights]
+  );
+
+  const customerLowestPrice = useMemo(
+    () => customerAllMenuItems.find(item => String(item.id) === String(customerHighlights?.lowest_price_item_id)) ||
+      [...customerAllMenuItems].sort((a, b) => Number(a.price || 0) - Number(b.price || 0))[0] || null,
+    [customerAllMenuItems, customerHighlights]
+  );
+
   const normalizedMenuSearch = menuSearch.trim().toLowerCase();
   const filteredMenu = useMemo(() => {
-    if (!normalizedMenuSearch) return menu;
-    return menu.map(cat => {
+    if (!normalizedMenuSearch) return customerDisplayMenu;
+    return customerDisplayMenu.map(cat => {
       const categoryMatch = `${cat.name_es || ''} ${cat.name_en || ''}`.toLowerCase().includes(normalizedMenuSearch);
       const items = categoryMatch
         ? (cat.items || [])
         : (cat.items || []).filter(item => `${item.name_es || ''} ${item.name_en || ''} ${item.description_es || ''} ${item.description_en || ''}`.toLowerCase().includes(normalizedMenuSearch));
       return { ...cat, items };
     }).filter(cat => (cat.items || []).length || `${cat.name_es || ''} ${cat.name_en || ''}`.toLowerCase().includes(normalizedMenuSearch));
-  }, [menu, normalizedMenuSearch]);
+  }, [customerDisplayMenu, normalizedMenuSearch]);
 
   const menuSearchResults = useMemo(() => {
     if (!normalizedMenuSearch) return [];
     const rows = [];
-    menu.forEach(cat => {
+    customerDisplayMenu.forEach(cat => {
       (cat.items || []).forEach(item => {
         const hay = `${cat.name_es || ''} ${item.name_es || ''} ${item.name_en || ''} ${item.description_es || ''} ${item.description_en || ''}`.toLowerCase();
         if (hay.includes(normalizedMenuSearch)) rows.push({ cat, item });
       });
     });
     return rows.slice(0, 12);
-  }, [menu, normalizedMenuSearch]);
+  }, [customerDisplayMenu, normalizedMenuSearch]);
 
   function selectMenuSearchResult(row) {
     setMenuSearchOpen(false);
@@ -1290,7 +1395,7 @@ function App() {
           <div className={settings?.is_open === false ? 'closed-status' : 'open-status'}>{settings?.is_open === false ? <span className="status-dot status-dot-closed"></span> : <span className="status-dot status-dot-open"></span>}<span>{settings?.is_open === false ? 'Cerrado ahora' : 'Abierto'} · {settings?.opening_hours || '12:00 - 01:00'}</span></div>
         </div>
         <div className={`chips menu-chips ${menuSearchOpen ? 'is-searching' : ''}`}>
-          {menu.map(c => <button type="button" key={c.id} className={openCategoryId === c.id ? 'active-chip' : ''} onClick={() => openCategory(c.id)}>{c.name_es}</button>)}
+          {customerDisplayMenu.map(c => <button type="button" key={c.id} className={openCategoryId === c.id ? 'active-chip' : ''} onClick={() => openCategory(c.id)}>{c.name_es}</button>)}
           <button type="button" className="search-chip" onClick={() => setMenuSearchOpen(v => !v)} aria-label="Buscar en el menú">⌕</button>
         </div>
         {menuSearchOpen && <div className="menu-search-panel">
@@ -1306,6 +1411,18 @@ function App() {
             </button>) : <div className="menu-search-empty">No encontré productos con ese texto.</div>}
           </div>}
         </div>}
+        <div className="customer-smart-sort">
+          <span>Ordenar menú:</span>
+          <button type="button" className={customerMenuSort === 'popular' ? 'active' : ''} onClick={() => setCustomerMenuSort('popular')}>🔥 Más vendidos</button>
+          <button type="button" className={customerMenuSort === 'cheap' ? 'active' : ''} onClick={() => setCustomerMenuSort('cheap')}>€ Mejor precio</button>
+          <button type="button" className={customerMenuSort === 'value' ? 'active' : ''} onClick={() => setCustomerMenuSort('value')}>✦ Recomendados</button>
+        </div>
+        <CustomerBestProducts
+          bestSeller={customerBestSeller}
+          lowestPrice={customerLowestPrice}
+          bestSellerUnits={customerHighlights?.top_seller_units || 0}
+          onOpenProduct={setActiveItem}
+        />
         <div className="accordion-menu">
           {openCategoryId === null && <div className="all-categories-closed">
             <b>Menú cerrado</b>

@@ -2785,3 +2785,178 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
 /* v18 real food profitability */
 .profitability-page{display:grid;gap:18px;padding:6px 0 36px}.profitability-header-card{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.profitability-header-card h2{margin:4px 0}.profitability-period{display:flex;gap:9px;align-items:end;flex-wrap:wrap}.profitability-period label,.profitability-form label{display:grid;gap:6px;font-size:13px;font-weight:800;color:#5c4a40}.profitability-period input,.profitability-form input,.profitability-form select,.profitability-form textarea{width:100%;padding:11px 12px;border:1px solid #ddcfc2;border-radius:12px;background:#fff;font:inherit;color:#241711}.profitability-form textarea{min-height:72px;resize:vertical}.profit-summary-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}.profit-summary-grid article{border:1px solid #e7d9cd;border-radius:18px;padding:16px;background:linear-gradient(145deg,#fff,#fff8f0);box-shadow:0 10px 20px rgba(0,0,0,.04)}.profit-summary-grid span{display:block;font-size:13px;font-weight:800;color:#735f52}.profit-summary-grid b{display:block;font-size:22px;color:#5b2119;margin-top:7px}.profit-warning-card{border-color:#e7a369!important;background:#fff4e9!important}.profitability-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:18px}.profitability-form{display:grid;gap:10px}.profitability-inline{display:grid;grid-template-columns:1fr 1fr;gap:10px}.ingredient-list{display:grid;gap:8px;margin-top:16px;max-height:350px;overflow:auto}.ingredient-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #eadfd5;border-radius:12px;padding:10px;background:#fff}.ingredient-row b{display:block}.ingredient-row small,.profit-table small{display:block;color:#78695f;font-size:12px;margin-top:2px}.ingredient-row button,.recipe-component-row button{border:0;border-radius:9px;background:#fff0ea;color:#9a241b;padding:7px 9px;font-weight:800;cursor:pointer}.recipe-component-row{display:grid;grid-template-columns:1fr 120px 36px;gap:8px;align-items:center}.add-recipe-component{border:1px dashed #b47a5d;background:#fffaf6;color:#7a2a20;padding:10px;border-radius:12px;font-weight:800;cursor:pointer}.recipe-live-result{display:grid;grid-template-columns:1fr auto;gap:6px;border:1px solid #ead5c5;border-radius:13px;padding:12px;background:#fff7ef}.recipe-live-result span{font-size:13px;color:#6a5649}.recipe-live-result b{text-align:right;color:#7d2119}.profit-table .low-margin-row{background:#fff4ea}.profit-table td{vertical-align:top}@media(max-width:1050px){.profit-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.profitability-grid{grid-template-columns:1fr}.profitability-header-card{flex-direction:column}}@media(max-width:640px){.profit-summary-grid{grid-template-columns:1fr}.profitability-inline{grid-template-columns:1fr}.recipe-component-row{grid-template-columns:1fr 90px 34px}.profitability-period{width:100%}.profitability-period label{flex:1}.profitability-period button{width:100%}}
 
+/* v20 customer highlights: most sold + lowest price */
+.customer-smart-sort{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  margin:14px 0 4px;
+  padding:10px 12px;
+  border:1px solid #ead8c7;
+  border-radius:16px;
+  background:linear-gradient(135deg,#fffaf5,#fff4ea);
+}
+.customer-smart-sort > span{
+  color:#684337;
+  font-size:13px;
+  font-weight:900;
+  margin-right:3px;
+}
+.customer-smart-sort button{
+  border:1px solid #e6c7b4;
+  border-radius:999px;
+  padding:8px 11px;
+  background:#fff;
+  color:#6e2a21;
+  font:inherit;
+  font-size:13px;
+  font-weight:800;
+  cursor:pointer;
+}
+.customer-smart-sort button.active{
+  background:#8f1d18;
+  color:#fff;
+  border-color:#8f1d18;
+  box-shadow:0 6px 14px rgba(143,29,24,.18);
+}
+.customer-best-products{
+  margin:18px 0 22px;
+  padding:20px;
+  border:1px solid #ead4c0;
+  border-radius:24px;
+  background:
+    radial-gradient(circle at 90% 10%,rgba(237,183,73,.18),transparent 30%),
+    linear-gradient(135deg,#fffaf4,#fff1e3);
+  box-shadow:0 14px 30px rgba(61,30,15,.06);
+}
+.best-products-title-row h2{
+  margin:4px 0 3px;
+  font-size:28px;
+  color:#3d1d16;
+}
+.best-products-title-row p{
+  margin:0;
+  color:#725e52;
+  font-size:14px;
+}
+.best-products-kicker{
+  display:block;
+  color:#9b3a1d;
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.11em;
+}
+.best-products-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px;
+  margin-top:16px;
+}
+.best-product-card{
+  position:relative;
+  display:grid;
+  grid-template-columns:116px 1fr;
+  gap:13px;
+  width:100%;
+  min-width:0;
+  overflow:hidden;
+  text-align:left;
+  padding:10px;
+  border:2px solid transparent;
+  border-radius:18px;
+  cursor:pointer;
+  background:#fff;
+  box-shadow:0 10px 20px rgba(42,20,12,.08);
+  animation:bestCardGlow 1.8s ease-in-out infinite;
+  transition:transform .18s ease,box-shadow .18s ease;
+}
+.best-product-card:hover{
+  transform:translateY(-2px);
+  box-shadow:0 16px 28px rgba(42,20,12,.16);
+}
+.best-product-card.popular{border-color:#efb74c}
+.best-product-card.price{border-color:#8ad4ab}
+.best-product-image-wrap{
+  position:relative;
+  min-height:115px;
+  overflow:hidden;
+  border-radius:13px;
+  background:#1a1210;
+}
+.best-product-image-wrap img{
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.best-product-pulse{
+  position:absolute;
+  top:7px;
+  left:7px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:31px;
+  height:31px;
+  border-radius:50%;
+  color:#fff;
+  background:#8f1d18;
+  box-shadow:0 0 0 0 rgba(143,29,24,.45);
+  animation:bestPulse 1.35s infinite;
+}
+.best-product-copy{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+  justify-content:center;
+}
+.best-product-eyebrow{
+  color:#9b3a1d;
+  font-size:12px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.best-product-card.price .best-product-eyebrow{color:#137a41}
+.best-product-copy b{
+  margin-top:3px;
+  color:#301913;
+  font-size:18px;
+  line-height:1.22;
+}
+.best-product-copy small{
+  margin-top:4px;
+  color:#715f55;
+  font-size:12px;
+  line-height:1.35;
+}
+.best-product-copy strong{
+  margin-top:8px;
+  color:#8f1d18;
+  font-size:20px;
+}
+.best-product-copy em{
+  margin-top:5px;
+  color:#5e2b21;
+  font-size:12px;
+  font-style:normal;
+  font-weight:800;
+}
+@keyframes bestPulse{
+  0%{box-shadow:0 0 0 0 rgba(143,29,24,.48)}
+  70%{box-shadow:0 0 0 10px rgba(143,29,24,0)}
+  100%{box-shadow:0 0 0 0 rgba(143,29,24,0)}
+}
+@keyframes bestCardGlow{
+  0%,100%{filter:brightness(1)}
+  50%{filter:brightness(1.035)}
+}
+@media(max-width:760px){
+  .best-products-grid{grid-template-columns:1fr}
+  .best-product-card{grid-template-columns:100px 1fr}
+  .best-product-image-wrap{min-height:100px}
+  .customer-best-products{padding:16px}
+  .best-products-title-row h2{font-size:24px}
+}
+
