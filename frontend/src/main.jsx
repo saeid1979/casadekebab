@@ -478,7 +478,7 @@ function CustomerSmartAssistant({ menu = [], cart = [], onOpenProduct }) {
       (category.items || []).forEach(item => rows.push({ ...item, category_name: category.name_es || '' }));
     });
     return rows;
-  }, [customerDisplayMenu]);
+  }, [menu]);
 
   function buildReply(rawQuestion) {
     const query = String(rawQuestion || '').trim().toLowerCase();
@@ -748,8 +748,8 @@ function App() {
   useEffect(() => {
     // فقط در اولین بار بارگذاری صفحه، اولین دسته باز شود.
     // بعد از آن اگر کاربر همه دسته‌ها را بست، سیستم دوباره اولی را باز نمی‌کند.
-    if (!initialCategoryOpenedRef.current && customerDisplayMenu?.length) {
-      setOpenCategoryId(customerDisplayMenu[0].id);
+    if (!initialCategoryOpenedRef.current && menu?.length) {
+      setOpenCategoryId(menu[0].id);
       initialCategoryOpenedRef.current = true;
     }
   }, [menu]);
