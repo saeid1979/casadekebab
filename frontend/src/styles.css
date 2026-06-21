@@ -2711,3 +2711,74 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
 .accounting-pdf-actions button:hover{background:#8f1d18;color:#fff;border-color:#8f1d18;transform:translateY(-1px);box-shadow:0 10px 18px rgba(143,29,24,.16)}
 @media(max-width:640px){.accounting-pdf-actions{display:grid;grid-template-columns:1fr}.accounting-pdf-actions button{width:100%}}
 
+/* v17 customer smart assistant */
+.customer-assistant-fab{
+  position:fixed;
+  right:22px;
+  bottom:24px;
+  z-index:90;
+  display:inline-flex;
+  align-items:center;
+  gap:9px;
+  border:0;
+  border-radius:999px;
+  padding:13px 17px;
+  background:linear-gradient(135deg,#b3261e,#7f1b17);
+  color:#fff;
+  font-family:'Inter',Arial,sans-serif;
+  font-size:15px;
+  font-weight:900;
+  cursor:pointer;
+  box-shadow:0 14px 28px rgba(143,29,24,.28);
+  transition:transform .2s ease, box-shadow .2s ease;
+}
+.customer-assistant-fab:hover{transform:translateY(-2px);box-shadow:0 18px 34px rgba(143,29,24,.34)}
+.customer-assistant-fab span{font-size:20px;line-height:1}
+.customer-assistant-panel{
+  position:fixed;
+  right:22px;
+  bottom:86px;
+  z-index:95;
+  width:min(390px,calc(100vw - 28px));
+  max-height:min(650px,calc(100vh - 112px));
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  border:1px solid #e4cbbd;
+  border-radius:22px;
+  background:#fffaf6;
+  box-shadow:0 24px 60px rgba(33,18,13,.25);
+}
+.customer-assistant-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  padding:18px 18px 16px;
+  color:#fff;
+  background:linear-gradient(135deg,#351b15,#8f1d18);
+}
+.customer-assistant-head h2{margin:2px 0 2px;font-size:20px;color:#fff}
+.customer-assistant-head p{margin:0;color:rgba(255,255,255,.78);font-size:13px}
+.customer-assistant-status{font-size:12px;font-weight:800;color:#8bf0ae}
+.customer-assistant-head button{border:0;background:rgba(255,255,255,.16);color:#fff;border-radius:50%;width:32px;height:32px;font-size:25px;line-height:1;cursor:pointer}
+.customer-assistant-messages{flex:1;overflow:auto;display:grid;gap:10px;padding:14px;background:linear-gradient(180deg,#fffaf6,#fff)}
+.assistant-message{max-width:92%;padding:11px 12px;border-radius:15px;font-size:14px;line-height:1.45}
+.assistant-message p{margin:0}
+.assistant-message.assistant{justify-self:start;background:#f5e9df;color:#3e2920;border-bottom-left-radius:4px}
+.assistant-message.user{justify-self:end;background:#8f1d18;color:#fff;border-bottom-right-radius:4px}
+.assistant-item-list{display:grid;gap:7px;margin-top:10px}
+.assistant-item-list button{display:flex;justify-content:space-between;gap:10px;width:100%;border:1px solid #e5cab9;border-radius:11px;background:#fff;padding:9px 10px;color:#4a241b;text-align:left;font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.assistant-item-list button:hover{border-color:#a62c20;background:#fff6f2}
+.assistant-item-list b{white-space:nowrap;color:#8f1d18}
+.assistant-whatsapp-link{display:inline-flex;margin-top:10px;border-radius:999px;background:#e8f9ef;color:#08734d;text-decoration:none;padding:8px 11px;font-size:13px;font-weight:900}
+.customer-assistant-quick{display:flex;gap:7px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid #ead9ce;background:#fffaf7}
+.customer-assistant-quick button{border:1px solid #ead1bf;background:#fff;color:#6b2b21;border-radius:999px;padding:7px 9px;font-size:12px;font-weight:800;cursor:pointer}
+.customer-assistant-quick button:hover{background:#fff0e7;border-color:#cf806c}
+.customer-assistant-form{display:flex;gap:8px;padding:12px;border-top:1px solid #ead9ce;background:#fff}
+.customer-assistant-form input{min-width:0;flex:1;border:1px solid #dac7ba;border-radius:12px;padding:11px 12px;font:inherit;font-size:14px;outline:0}
+.customer-assistant-form input:focus{border-color:#a72c20;box-shadow:0 0 0 3px rgba(167,44,32,.1)}
+.customer-assistant-form button{width:43px;border:0;border-radius:12px;background:#8f1d18;color:#fff;font-size:18px;font-weight:900;cursor:pointer}
+.customer-assistant-note{display:block;padding:0 12px 11px;background:#fff;color:#88766b;font-size:10px;line-height:1.35}
+@media(max-width:900px){.customer-assistant-fab{right:16px;bottom:88px}.customer-assistant-panel{right:14px;bottom:144px;width:calc(100vw - 28px);max-height:calc(100vh - 164px)}}
+

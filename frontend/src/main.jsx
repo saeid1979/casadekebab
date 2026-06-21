@@ -461,6 +461,171 @@ function Header({ title = 'Casa de Kebab Turco', subtitle = RESTAURANT_ADDRESS, 
   </header>;
 }
 
+
+function CustomerSmartAssistant({ menu = [], cart = [], onOpenProduct }) {
+  const [open, setOpen] = useState(false);
+  const [question, setQuestion] = useState('');
+  const [messages, setMessages] = useState([
+    {
+      role: 'assistant',
+      text: '¡Hola! Soy el asistente de Casa de Kebab Turco. Puedo ayudarte a elegir un plato, ver ofertas, consultar horario, entrega o hablar por WhatsApp.'
+    }
+  ]);
+
+  const allItems = useMemo(() => {
+    const rows = [];
+    (menu || []).forEach(category => {
+      (category.items || []).forEach(item => rows.push({ ...item, category_name: category.name_es || '' }));
+    });
+    return rows;
+  }, [menu]);
+
+  function buildReply(rawQuestion) {
+    const query = String(rawQuestion || '').trim().toLowerCase();
+    const itemsBy = words => allItems.filter(item => words.some(word => `${item.name_es || ''} ${item.description_es || ''} ${item.category_name || ''}`.toLowerCase().includes(word))).slice(0, 3);
+    const offerItems = allItems.filter(item => `${item.name_es || ''} ${item.category_name || ''}`.toLowerCase().includes('oferta') || `${item.name_es || ''} ${item.category_name || ''}`.toLowerCase().includes('combo')).slice(0, 3);
+
+    if (!query) return { text: 'Escribe una pregunta o usa una de las opciones rápidas.', items: [] };
+
+    if (/(hola|buenas|hello)/.test(query)) {
+      return { text: '¡Hola! ¿Buscas algo de pollo, ternera, mixto, una oferta familiar o una recomendación?', items: [] };
+    }
+
+    if (/(horario|abre|abierto|cerrado|hora)/.test(query)) {
+      return { text: `Nuestro horario es: ${RESTAURANT_OPENING_HOURS}.`, items: [] };
+    }
+
+    if (/(direcci|donde|ubicaci|local|recoger)/.test(query)) {
+      return { text: `Estamos en ${RESTAURANT_ADDRESS}. Puedes elegir “Recoger” al finalizar el pedido.`, items: [] };
+    }
+
+    if (/(whatsapp|tel[eé]fono|llamar|instagram|insta)/.test(query)) {
+      return {
+        text: 'Puedes escribirnos por WhatsApp al 617 664 656 o visitarnos en Instagram: @casadekebabturco.',
+        items: [],
+        showWhatsApp: true
+      };
+    }
+
+    if (/(entrega|domicilio|reparto|env[ií]o)/.test(query)) {
+      return { text: 'Hacemos entrega a domicilio en Salamanca. Al escribir tu dirección, el sistema calcula la ruta y confirma si está dentro de la zona de reparto.', items: [] };
+    }
+
+    if (/(oferta|combo|familiar|grupo|varias personas)/.test(query)) {
+      return {
+        text: offerItems.length ? 'Estas opciones pueden ser una buena elección para compartir o ahorrar:' : 'Consulta nuestras ofertas actuales en el menú.',
+        items: offerItems
+      };
+    }
+
+    if (/(pollo|chicken)/.test(query)) {
+      const items = itemsBy(['pollo']);
+      return { text: items.length ? 'Estas son mis recomendaciones con pollo:' : 'Ahora mismo no encontré opciones de pollo en el menú disponible.', items };
+    }
+
+    if (/(ternera|carne|beef)/.test(query)) {
+      const items = itemsBy(['ternera']);
+      return { text: items.length ? 'Estas son mis recomendaciones con ternera:' : 'Ahora mismo no encontré opciones de ternera en el menú disponible.', items };
+    }
+
+    if (/(mixto|mix)/.test(query)) {
+      const items = itemsBy(['mixto']);
+      return { text: items.length ? 'Estas son mis recomendaciones mixtas:' : 'Ahora mismo no encontré opciones mixtas en el menú disponible.', items };
+    }
+
+    if (/(durum|d[uü]r[uü]m|wrap)/.test(query)) {
+      const items = itemsBy(['durum', 'dürü', 'wrap']);
+      return { text: items.length ? 'Estas opciones tipo dürüm están disponibles:' : 'No encontré dürüm en el menú cargado.', items };
+    }
+
+    if (/(picante|pica|spicy)/.test(query)) {
+      return { text: 'Puedes pedir que ajustemos las salsas o indicar “picante” en las notas del pedido. Revisa también la descripción de cada plato antes de confirmar.', items: [] };
+    }
+
+    if (/(vegetar|vegano|sin carne)/.test(query)) {
+      return { text: 'Para alergias, dieta vegetariana o ingredientes específicos, revisa la descripción del producto y escribe tu petición en las notas. Para confirmación inmediata, escríbenos por WhatsApp.', items: [], showWhatsApp: true };
+    }
+
+    if (/(recomienda|recomendaci|qu[eé] pido|mejor|popular)/.test(query)) {
+      const candidates = offerItems.length ? offerItems : allItems.slice(0, 3);
+      return { text: candidates.length ? 'Basándome en el menú disponible, estas opciones son una buena forma de empezar:' : 'El menú se está cargando; vuelve a intentarlo en unos segundos.', items: candidates };
+    }
+
+    if (/(carrito|cesta|pedido actual)/.test(query)) {
+      const count = (cart || []).reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+      if (!count) return { text: 'Tu cesta está vacía. Dime qué tipo de comida prefieres y te recomiendo opciones.', items: [] };
+      return { text: `Tu cesta tiene ${count} producto${count === 1 ? '' : 's'}. Puedes abrir un producto recomendado para añadir bebidas, patatas u opciones según estén disponibles.`, items: [] };
+    }
+
+    const matches = allItems.filter(item => `${item.name_es || ''} ${item.description_es || ''} ${item.category_name || ''}`.toLowerCase().includes(query)).slice(0, 3);
+    if (matches.length) return { text: 'He encontrado estas opciones relacionadas con tu búsqueda:', items: matches };
+
+    return {
+      text: 'Puedo ayudarte con platos de pollo, ternera, mixtos, dürüm, ofertas, entrega, horario, dirección o WhatsApp. También puedes escribir el nombre de un plato.',
+      items: [],
+      showWhatsApp: true
+    };
+  }
+
+  function ask(value) {
+    const clean = String(value || '').trim();
+    if (!clean) return;
+    const reply = buildReply(clean);
+    setMessages(prev => [...prev, { role: 'user', text: clean }, { role: 'assistant', ...reply }]);
+    setQuestion('');
+  }
+
+  const quickActions = ['¿Qué me recomiendas?', 'Ofertas familiares', 'Horario', 'Entrega a domicilio', 'WhatsApp'];
+
+  return <>
+    <button
+      type="button"
+      className="customer-assistant-fab"
+      onClick={() => setOpen(value => !value)}
+      aria-label="Abrir asistente de pedidos"
+      title="Asistente de pedidos"
+    >
+      <span>💬</span>
+      <b>Ayuda</b>
+    </button>
+
+    {open && <aside className="customer-assistant-panel" aria-live="polite">
+      <header className="customer-assistant-head">
+        <div>
+          <span className="customer-assistant-status">● En línea</span>
+          <h2>Asistente de pedidos</h2>
+          <p>Casa de Kebab Turco</p>
+        </div>
+        <button type="button" onClick={() => setOpen(false)} aria-label="Cerrar asistente">×</button>
+      </header>
+
+      <div className="customer-assistant-messages">
+        {messages.map((message, index) => <article className={`assistant-message ${message.role}`} key={`${message.role}-${index}`}>
+          <p>{message.text}</p>
+          {Array.isArray(message.items) && message.items.length > 0 && <div className="assistant-item-list">
+            {message.items.map(item => <button key={item.id} type="button" onClick={() => onOpenProduct?.(item)}>
+              <span>{item.name_es}</span>
+              <b>{money(item.price)}</b>
+            </button>)}
+          </div>}
+          {message.showWhatsApp && <a className="assistant-whatsapp-link" href="https://wa.me/34617664656" target="_blank" rel="noreferrer">Abrir WhatsApp</a>}
+        </article>)}
+      </div>
+
+      <div className="customer-assistant-quick">
+        {quickActions.map(action => <button key={action} type="button" onClick={() => ask(action)}>{action}</button>)}
+      </div>
+
+      <form className="customer-assistant-form" onSubmit={event => { event.preventDefault(); ask(question); }}>
+        <input value={question} onChange={event => setQuestion(event.target.value)} placeholder="Escribe tu pregunta..." maxLength={180} />
+        <button type="submit" aria-label="Enviar pregunta">➤</button>
+      </form>
+
+      <small className="customer-assistant-note">Respuestas basadas en el menú y la información actual del restaurante.</small>
+    </aside>}
+  </>;
+}
+
 function App() {
   usePageChrome();
   const [menu, setMenu] = useState(fallbackMenu);
@@ -1303,6 +1468,7 @@ function App() {
         Reenviar código
       </button>
     </Modal>}
+    <CustomerSmartAssistant menu={menu} cart={cart} onOpenProduct={setActiveItem} />
   </div>;
 }
 
