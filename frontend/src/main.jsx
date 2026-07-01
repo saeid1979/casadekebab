@@ -3900,6 +3900,110 @@ function ProfessionalReportsPanel() {
   </section>;
 }
 
+
+// v31 Simple daily management hub: one ordered place for finance, stock and profit
+const DAILY_FINANCE_TABS = [
+  'daily-management', 'smart-finance', 'inventory-real', 'accounting',
+  'profitability', 'profit-intelligence', 'professional-reports',
+  'admin-guide', 'management-assistant'
+];
+
+function DailyManagementHub({ activeTab, onNavigate }) {
+  const language = useGlobalAdminLanguage();
+  const copy = {
+    es: {
+      kicker:'GESTIÓN DIARIA', title:'Finanzas, gastos, inventario y beneficio',
+      subtitle:'Sigue este orden de trabajo. Cada botón abre la herramienta correcta sin buscar entre muchas pestañas.',
+      now:'¿Qué necesitas hacer ahora?', details:'Herramientas detalladas',
+      steps:[
+        ['1','Comprar materia prima','Pollo, carne, pan, patatas, bebidas, salsa o envases. Aumenta stock y registra el gasto.','inventory-real'],
+        ['2','Registrar otro gasto','Alquiler, luz, agua, gestor, publicidad, reparación, comisiones o transporte.','accounting'],
+        ['3','Revisar inventario','Consulta stock actual, registra una merma o corrige una diferencia física.','inventory-real'],
+        ['4','Comprobar ventas y resumen','Revisa ventas, gastos y situación financiera general del periodo.','smart-finance'],
+        ['5','Configurar receta y coste','Relaciona ingredientes con cada producto para calcular su coste real.','profitability'],
+        ['6','Ver beneficio y análisis','Consulta margen, productos rentables y alertas de coste.','profit-intelligence'],
+        ['7','Cerrar periodo y generar informe','Revisa resultados y prepara el informe para socios o gestor.','professional-reports'],
+      ],
+      extra:[
+        ['Asistente financiero','Pregunta sobre ventas, gastos y alertas.','management-assistant'],
+        ['Guía paso a paso','Consulta el orden correcto de registro de datos.','admin-guide'],
+      ],
+      go:'Abrir', active:'Estás aquí', tip:'Regla importante: compra de materia prima se registra solo en “Comprar materia prima”. No la dupliques después en Contabilidad.'
+    },
+    fa: {
+      kicker:'مدیریت روزانه', title:'مالی، هزینه، انبار و سود',
+      subtitle:'کارها را با این ترتیب انجام دهید. هر دکمه ابزار درست را باز می‌کند و نیازی به جست‌وجو میان تب‌های زیاد نیست.',
+      now:'الان چه کاری می‌خواهید انجام دهید؟', details:'ابزارهای تکمیلی',
+      steps:[
+        ['۱','ثبت خرید مواد اولیه','مرغ، گوشت، نان، سیب‌زمینی، نوشیدنی، سس یا بسته‌بندی. موجودی را زیاد و هزینه را ثبت می‌کند.','inventory-real'],
+        ['۲','ثبت هزینه دیگر','اجاره، برق، آب، gestor، تبلیغات، تعمیرات، کمیسیون یا حمل‌ونقل.','accounting'],
+        ['۳','بررسی انبار','موجودی فعلی را ببینید، ضایعات را ثبت کنید یا اختلاف شمارش را اصلاح کنید.','inventory-real'],
+        ['۴','بررسی فروش و خلاصه مالی','فروش، هزینه‌ها و وضعیت مالی کلی دوره را ببینید.','smart-finance'],
+        ['۵','ثبت دستور و هزینه غذا','مواد اولیه هر محصول را وارد کنید تا هزینه واقعی آن محاسبه شود.','profitability'],
+        ['۶','مشاهده سود و تحلیل','حاشیه سود، غذاهای پربازده و هشدار هزینه را بررسی کنید.','profit-intelligence'],
+        ['۷','بستن دوره و گزارش‌گیری','نتیجه را مرور و گزارش شریک‌ها یا gestor را آماده کنید.','professional-reports'],
+      ],
+      extra:[
+        ['دستیار مالی','درباره فروش، هزینه و هشدارها سؤال بپرسید.','management-assistant'],
+        ['راهنمای مرحله‌به‌مرحله','ترتیب درست ثبت اطلاعات را ببینید.','admin-guide'],
+      ],
+      go:'باز کردن', active:'در این بخش هستید', tip:'قانون مهم: خرید مواد اولیه را فقط در «ثبت خرید مواد اولیه» ثبت کنید؛ همان خرید را دوباره در حسابداری وارد نکنید.'
+    },
+    ar: {
+      kicker:'الإدارة اليومية', title:'المالية والمصروفات والمخزون والربح',
+      subtitle:'اتبع هذا الترتيب. كل زر يفتح الأداة الصحيحة دون البحث بين تبويبات كثيرة.',
+      now:'ماذا تريد أن تفعل الآن؟', details:'أدوات إضافية',
+      steps:[
+        ['١','تسجيل شراء المواد','دجاج ولحم وخبز وبطاطا ومشروبات وصلصات وعبوات. يزيد المخزون ويسجل المصروف.','inventory-real'],
+        ['٢','تسجيل مصروف آخر','الإيجار والكهرباء والماء وgestor والإعلان والإصلاح والعمولات أو النقل.','accounting'],
+        ['٣','مراجعة المخزون','اعرض المخزون الحالي أو سجّل الهدر أو صحح فرق الجرد.','inventory-real'],
+        ['٤','مراجعة المبيعات والملخص المالي','راجع المبيعات والمصروفات والوضع المالي العام للفترة.','smart-finance'],
+        ['٥','وصفة وتكلفة الطعام','أدخل مكونات كل منتج لكي يتم حساب تكلفته الفعلية.','profitability'],
+        ['٦','عرض الربح والتحليل','راجع هامش الربح والمنتجات الأفضل وتنبيهات التكلفة.','profit-intelligence'],
+        ['٧','إقفال الفترة والتقارير','راجع النتائج وجهز تقرير الشركاء أو gestor.','professional-reports'],
+      ],
+      extra:[
+        ['المساعد المالي','اسأل عن المبيعات والمصروفات والتنبيهات.','management-assistant'],
+        ['الدليل خطوة بخطوة','راجع الترتيب الصحيح لتسجيل البيانات.','admin-guide'],
+      ],
+      go:'فتح', active:'أنت هنا', tip:'قاعدة مهمة: سجّل شراء المواد في «تسجيل شراء المواد» فقط، ولا تدخل العملية نفسها مرة أخرى في المحاسبة.'
+    }
+  }[language] || {};
+  return <section className={`daily-management-page lang-${language}`} dir={language === 'es' ? 'ltr' : 'rtl'}>
+    <section className="admin-card daily-management-hero">
+      <span className="admin-kicker">{copy.kicker}</span>
+      <h2>{copy.title}</h2>
+      <p>{copy.subtitle}</p>
+    </section>
+    <section className="daily-management-tip"><b>✓</b><p>{copy.tip}</p></section>
+    <h2 className="daily-management-heading">{copy.now}</h2>
+    <section className="daily-management-steps">
+      {copy.steps.map(([number,title,description,target]) => <article className="admin-card daily-management-step" key={target + title}>
+        <span className="daily-step-number">{number}</span>
+        <div><h3>{title}</h3><p>{description}</p><button className="smart-primary" onClick={() => onNavigate(target)}>{activeTab === target ? copy.active : copy.go}</button></div>
+      </article>)}
+    </section>
+    <h2 className="daily-management-heading">{copy.details}</h2>
+    <section className="daily-management-extra">
+      {copy.extra.map(([title,description,target]) => <article className="admin-card" key={target}>
+        <h3>{title}</h3><p>{description}</p><button className="mini-action" onClick={() => onNavigate(target)}>{copy.go}</button>
+      </article>)}
+    </section>
+  </section>;
+}
+
+function DailyManagementToolbar({ activeTab, onNavigate }) {
+  const language = useGlobalAdminLanguage();
+  const labels = {
+    es:[['daily-management','Inicio'],['inventory-real','Compras y stock'],['accounting','Otros gastos'],['smart-finance','Resumen financiero'],['profitability','Recetas y coste'],['profit-intelligence','Beneficio'],['professional-reports','Informes'],['admin-guide','Guía']],
+    fa:[['daily-management','شروع'],['inventory-real','خرید و انبار'],['accounting','هزینه‌های دیگر'],['smart-finance','خلاصه مالی'],['profitability','دستور و هزینه'],['profit-intelligence','سود'],['professional-reports','گزارش‌ها'],['admin-guide','راهنما']],
+    ar:[['daily-management','البداية'],['inventory-real','الشراء والمخزون'],['accounting','مصروفات أخرى'],['smart-finance','الملخص المالي'],['profitability','الوصفات والتكلفة'],['profit-intelligence','الربح'],['professional-reports','التقارير'],['admin-guide','الدليل']]
+  }[language] || [];
+  return <nav className="daily-management-toolbar" dir={language === 'es' ? 'ltr' : 'rtl'}>
+    {labels.map(([key,label]) => <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => onNavigate(key)}>{label}</button>)}
+  </nav>;
+}
+
 function DashboardApp() {
   usePageChrome();
   if (!getAdminToken()) return <AdminLoginApp />;
@@ -4670,14 +4774,7 @@ function DashboardApp() {
     ['tracking','Mapa repartidores en vivo'],
     ['customers','Clientes'],
     ['reports','Reportes dinámicos'],
-    ['accounting','Contabilidad'],
-    ['profitability','Rentabilidad'],
-    ['smart-finance','Finanzas inteligentes'],
-    ['inventory-real','Inventario real'],
-    ['profit-intelligence','Análisis inteligente'],
-    ['management-assistant','Asistente financiero'],
-    ['professional-reports','Informes profesionales'],
-    ['admin-guide','Guía de registro'],
+    ['daily-management','Gestión diaria'],
     ['system','Sistema / Backup'],
     ['config','Configuración'],
     ['menu','Categorías / Menú'],
@@ -4704,7 +4801,7 @@ function DashboardApp() {
       </section>
 
       <nav className="admin-tabs">
-        {tabs.map(([key,label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => { setTab(key); if (key === 'reports') window.setTimeout(loadDynamicReports, 0); if (key === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }}>{label}</button>)}
+        {tabs.map(([key,label]) => <button key={key} className={(tab === key || (key === 'daily-management' && DAILY_FINANCE_TABS.includes(tab))) ? 'active' : ''} onClick={() => { setTab(key); if (key === 'reports') window.setTimeout(loadDynamicReports, 0); if (key === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }}>{label}</button>)}
       </nav>
 
       {data && <section className="admin-metrics-grid">
@@ -5128,6 +5225,11 @@ function DashboardApp() {
       </section>}
 
 
+
+
+      {DAILY_FINANCE_TABS.includes(tab) && <DailyManagementToolbar activeTab={tab} onNavigate={(nextTab) => { setTab(nextTab); if (nextTab === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }} />}
+
+      {tab === 'daily-management' && <DailyManagementHub activeTab={tab} onNavigate={(nextTab) => { setTab(nextTab); if (nextTab === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }} />}
 
 
       {tab === 'smart-finance' && <SmartFinanceInventoryPanel
