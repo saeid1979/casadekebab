@@ -12,8 +12,7 @@ export function optimizeCloudinaryUrl(url, width = 480, quality = "eco") {
   const transformation = [
     "f_auto",
     `q_auto:${quality}`,
-    "c_fill",
-    "g_auto",
+    "c_fit",
     `w_${Math.max(160, Number(width) || 480)}`,
   ].join(",");
 

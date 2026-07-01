@@ -333,3 +333,23 @@ urlpatterns = [
     path('admin/profitability/report/', admin_profitability_report, name='admin-profitability-report'),
 
 ]
+
+# ============================================================
+# Finance Reports v2 URLs - Casa de Kebab Turco
+# ============================================================
+
+from .views import (
+    finance_profit_loss_v2,
+    finance_product_sales_v2,
+    finance_daily_report_v2,
+    finance_partner_summary_v2,
+    finance_dashboard_v2,
+)
+
+urlpatterns += [
+    path("finance-v2/dashboard/", finance_dashboard_v2, name="finance-v2-dashboard"),
+    path("finance-v2/profit-loss/", finance_profit_loss_v2, name="finance-v2-profit-loss"),
+    path("finance-v2/product-sales/", finance_product_sales_v2, name="finance-v2-product-sales"),
+    path("finance-v2/daily/", finance_daily_report_v2, name="finance-v2-daily"),
+    path("finance-v2/partners/", finance_partner_summary_v2, name="finance-v2-partners"),
+]

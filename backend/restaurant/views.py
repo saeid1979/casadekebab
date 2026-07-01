@@ -2619,7 +2619,7 @@ def _profitability_profile_payload(profile):
 @api_view(['GET', 'POST'])
 @admin_token_required
 def admin_profitability_ingredients(request):
-    from .models import Ingredient
+    
 
     if request.method == 'GET':
         qs = Ingredient.objects.all().order_by('name')
@@ -2648,7 +2648,7 @@ def admin_profitability_ingredients(request):
 @api_view(['PATCH', 'DELETE'])
 @admin_token_required
 def admin_profitability_ingredient_detail(request, ingredient_id):
-    from .models import Ingredient
+    
 
     try:
         ingredient = Ingredient.objects.get(id=ingredient_id)
@@ -2680,7 +2680,7 @@ def admin_profitability_ingredient_detail(request, ingredient_id):
 @api_view(['GET', 'PUT'])
 @admin_token_required
 def admin_profitability_recipe(request, menu_item_id):
-    from .models import Ingredient, ProductCostProfile, RecipeIngredient
+    from .models import ProductCostProfile
 
     try:
         item = MenuItem.objects.get(id=menu_item_id)
@@ -2855,3 +2855,309 @@ def public_customer_menu_highlights(request):
         'lowest_price_item_id': str(cheapest.id) if cheapest else None,
     })
 
+# ============================================================
+# Finance Reports v2 - Casa de Kebab Turco
+# Uses existing models only. No new database tables.
+# ============================================================
+
+from decimal import Decimal
+from django.db.models import Sum, Count
+from django.utils import timezone
+from django.utils.dateparse import parse_date
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAdminUser
+from rest_framework.response import Response
+
+from .models import (
+    Order,
+    OrderItem,
+    RestaurantFinancialEntry,
+    AccountingSettings,
+)
+
+
+def _finance_v2_money(value):
+    value = Decimal(str(value or "0.00"))
+    return str(value.quantize(Decimal("0.01")))
+
+
+def _finance_v2_date_range(request):
+    start = parse_date(request.GET.get("start", ""))
+    end = parse_date(request.GET.get("end", ""))
+    if not start or not end:
+        today = timezone.localdate()
+        start = today.replace(day=1)
+        end = today
+    return start, end
+
+
+def _finance_v2_orders_between(start, end):
+    return Order.objects.filter(
+        created_at__date__gte=start,
+        created_at__date__lte=end,
+    ).exclude(status=Order.STATUS_CANCELLED)
+
+
+def _finance_v2_entries_between(start, end):
+    return RestaurantFinancialEntry.objects.filter(
+        entry_date__gte=start,
+        entry_date__lte=end,
+        status=RestaurantFinancialEntry.STATUS_APPROVED,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def finance_profit_loss_v2(request):
+    start, end = _finance_v2_date_range(request)
+
+    orders = _finance_v2_orders_between(start, end)
+    entries = _finance_v2_entries_between(start, end)
+
+    revenue = orders.aggregate(s=Sum("total"))["s"] or Decimal("0.00")
+    subtotal = orders.aggregate(s=Sum("subtotal"))["s"] or Decimal("0.00")
+    delivery_fees = orders.aggregate(s=Sum("delivery_fee"))["s"] or Decimal("0.00")
+    discounts = orders.aggregate(s=Sum("discount"))["s"] or Decimal("0.00")
+
+    expenses = entries.filter(
+        entry_type=RestaurantFinancialEntry.TYPE_EXPENSE
+    ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
+
+    contributions = entries.filter(
+        entry_type=RestaurantFinancialEntry.TYPE_CONTRIBUTION
+    ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
+
+    settlements = entries.filter(
+        entry_type=RestaurantFinancialEntry.TYPE_SETTLEMENT
+    ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
+
+    net_profit = revenue - expenses
+    orders_count = orders.count()
+    avg_order_value = revenue / orders_count if orders_count else Decimal("0.00")
+
+    by_payment_method = list(
+        orders.values("payment_method")
+        .annotate(count=Count("id"), total=Sum("total"))
+        .order_by("-total")
+    )
+
+    by_delivery_type = list(
+        orders.values("delivery_type")
+        .annotate(count=Count("id"), total=Sum("total"))
+        .order_by("-total")
+    )
+
+    expense_by_category = list(
+        entries.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+        .values("category__name")
+        .annotate(count=Count("id"), total=Sum("amount"))
+        .order_by("-total")
+    )
+
+    expense_by_paid_by = list(
+        entries.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+        .values("paid_by")
+        .annotate(count=Count("id"), total=Sum("amount"))
+        .order_by("-total")
+    )
+
+    return Response({
+        "period": {"start": start, "end": end},
+        "summary": {
+            "revenue": _finance_v2_money(revenue),
+            "subtotal": _finance_v2_money(subtotal),
+            "delivery_fees": _finance_v2_money(delivery_fees),
+            "discounts": _finance_v2_money(discounts),
+            "expenses": _finance_v2_money(expenses),
+            "contributions_to_bbva": _finance_v2_money(contributions),
+            "settlements": _finance_v2_money(settlements),
+            "net_profit": _finance_v2_money(net_profit),
+            "orders_count": orders_count,
+            "average_order_value": _finance_v2_money(avg_order_value),
+        },
+        "orders_by_payment_method": [
+            {"payment_method": x["payment_method"], "count": x["count"], "total": _finance_v2_money(x["total"])}
+            for x in by_payment_method
+        ],
+        "orders_by_delivery_type": [
+            {"delivery_type": x["delivery_type"], "count": x["count"], "total": _finance_v2_money(x["total"])}
+            for x in by_delivery_type
+        ],
+        "expenses_by_category": [
+            {"category": x["category__name"] or "Sin categoría", "count": x["count"], "total": _finance_v2_money(x["total"])}
+            for x in expense_by_category
+        ],
+        "expenses_by_paid_by": [
+            {"paid_by": x["paid_by"], "count": x["count"], "total": _finance_v2_money(x["total"])}
+            for x in expense_by_paid_by
+        ],
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def finance_product_sales_v2(request):
+    start, end = _finance_v2_date_range(request)
+    orders = _finance_v2_orders_between(start, end)
+
+    rows = (
+        OrderItem.objects
+        .filter(order__in=orders)
+        .values("menu_item_id", "name_snapshot")
+        .annotate(quantity_sold=Sum("quantity"), revenue=Sum("total"))
+        .order_by("-revenue")
+    )
+
+    data = []
+    for row in rows:
+        revenue = row["revenue"] or Decimal("0.00")
+        qty = row["quantity_sold"] or 0
+        avg_price = revenue / Decimal(qty) if qty else Decimal("0.00")
+        data.append({
+            "menu_item_id": row["menu_item_id"],
+            "product": row["name_snapshot"],
+            "quantity_sold": qty,
+            "revenue": _finance_v2_money(revenue),
+            "average_price": _finance_v2_money(avg_price),
+        })
+
+    return Response({"period": {"start": start, "end": end}, "products": data})
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def finance_daily_report_v2(request):
+    start, end = _finance_v2_date_range(request)
+
+    orders_by_day = (
+        _finance_v2_orders_between(start, end)
+        .values("created_at__date")
+        .annotate(revenue=Sum("total"), orders_count=Count("id"))
+        .order_by("created_at__date")
+    )
+
+    expenses_by_day = (
+        _finance_v2_entries_between(start, end)
+        .filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+        .values("entry_date")
+        .annotate(expenses=Sum("amount"))
+        .order_by("entry_date")
+    )
+
+    result = {}
+
+    for x in orders_by_day:
+        d = str(x["created_at__date"])
+        result.setdefault(d, {"date": d, "revenue": Decimal("0.00"), "expenses": Decimal("0.00"), "orders_count": 0})
+        result[d]["revenue"] = x["revenue"] or Decimal("0.00")
+        result[d]["orders_count"] = x["orders_count"]
+
+    for x in expenses_by_day:
+        d = str(x["entry_date"])
+        result.setdefault(d, {"date": d, "revenue": Decimal("0.00"), "expenses": Decimal("0.00"), "orders_count": 0})
+        result[d]["expenses"] = x["expenses"] or Decimal("0.00")
+
+    rows = []
+    for d in sorted(result.keys()):
+        row = result[d]
+        net = row["revenue"] - row["expenses"]
+        rows.append({
+            "date": row["date"],
+            "revenue": _finance_v2_money(row["revenue"]),
+            "expenses": _finance_v2_money(row["expenses"]),
+            "net_profit": _finance_v2_money(net),
+            "orders_count": row["orders_count"],
+        })
+
+    return Response({"period": {"start": start, "end": end}, "days": rows})
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def finance_partner_summary_v2(request):
+    start, end = _finance_v2_date_range(request)
+    settings = AccountingSettings.current()
+    entries = _finance_v2_entries_between(start, end)
+
+    expenses_by_partner = {"saeid": Decimal("0.00"), "ahmed": Decimal("0.00"), "bbva": Decimal("0.00")}
+    for row in entries.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE).values("paid_by").annotate(total=Sum("amount")):
+        expenses_by_partner[row["paid_by"]] = row["total"] or Decimal("0.00")
+
+    contributions_by_partner = {"saeid": Decimal("0.00"), "ahmed": Decimal("0.00"), "bbva": Decimal("0.00")}
+    for row in entries.filter(entry_type=RestaurantFinancialEntry.TYPE_CONTRIBUTION).values("contribution_from").annotate(total=Sum("amount")):
+        if row["contribution_from"]:
+            contributions_by_partner[row["contribution_from"]] = row["total"] or Decimal("0.00")
+
+    total_expenses = sum(expenses_by_partner.values(), Decimal("0.00"))
+    saeid_expected = total_expenses * (settings.saeid_share_percent / Decimal("100"))
+    ahmed_expected = total_expenses * (settings.ahmed_share_percent / Decimal("100"))
+
+    return Response({
+        "period": {"start": start, "end": end},
+        "shares": {
+            "saeid_percent": _finance_v2_money(settings.saeid_share_percent),
+            "ahmed_percent": _finance_v2_money(settings.ahmed_share_percent),
+        },
+        "expenses_paid": {k: _finance_v2_money(v) for k, v in expenses_by_partner.items()},
+        "contributions_to_bbva": {k: _finance_v2_money(v) for k, v in contributions_by_partner.items()},
+        "expected_expense_share": {
+            "saeid": _finance_v2_money(saeid_expected),
+            "ahmed": _finance_v2_money(ahmed_expected),
+        },
+        "balance_hint": {
+            "saeid": _finance_v2_money(expenses_by_partner["saeid"] - saeid_expected),
+            "ahmed": _finance_v2_money(expenses_by_partner["ahmed"] - ahmed_expected),
+        }
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def finance_dashboard_v2(request):
+    today = timezone.localdate()
+    start = today.replace(day=1)
+    end = today
+
+    orders = _finance_v2_orders_between(start, end)
+    entries = _finance_v2_entries_between(start, end)
+
+    revenue = orders.aggregate(s=Sum("total"))["s"] or Decimal("0.00")
+    expenses = entries.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
+    net_profit = revenue - expenses
+
+    top_products = (
+        OrderItem.objects.filter(order__in=orders)
+        .values("name_snapshot")
+        .annotate(quantity_sold=Sum("quantity"), revenue=Sum("total"))
+        .order_by("-revenue")[:5]
+    )
+
+    latest_expenses = list(
+        entries.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+        .order_by("-entry_date", "-created_at")
+        .values("entry_date", "title", "amount", "paid_by", "category__name")[:10]
+    )
+
+    return Response({
+        "period": {"start": start, "end": end},
+        "cards": {
+            "revenue": _finance_v2_money(revenue),
+            "expenses": _finance_v2_money(expenses),
+            "net_profit": _finance_v2_money(net_profit),
+            "orders_count": orders.count(),
+        },
+        "top_products": [
+            {"product": x["name_snapshot"], "quantity_sold": x["quantity_sold"], "revenue": _finance_v2_money(x["revenue"])}
+            for x in top_products
+        ],
+        "latest_expenses": [
+            {
+                "date": x["entry_date"],
+                "title": x["title"],
+                "amount": _finance_v2_money(x["amount"]),
+                "paid_by": x["paid_by"],
+                "category": x["category__name"] or "Sin categoría",
+            }
+            for x in latest_expenses
+        ],
+    })

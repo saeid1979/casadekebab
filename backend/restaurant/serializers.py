@@ -665,4 +665,3 @@ class RiderPushDeviceSerializer(serializers.ModelSerializer):
             "last_seen_at",
         ]
 # --- End Rider push serializer repair ---
-

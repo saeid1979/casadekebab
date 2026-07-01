@@ -1,0 +1,144 @@
+/* === Casa de Kebab Turco: customer UI repair v1 === */
+:root {
+  --cdkt-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --cdkt-bottom-nav-height: 72px;
+}
+
+/* Keep the original visual design and only reserve Android safe space. */
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: calc(
+    var(--cdkt-bottom-nav-height) +
+    var(--cdkt-safe-bottom) +
+    14px
+  );
+}
+
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1500;
+
+  height: auto;
+  min-height: calc(
+    var(--cdkt-bottom-nav-height) +
+    var(--cdkt-safe-bottom)
+  );
+
+  /* The customer app has five menu buttons. */
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+
+  padding: 4px 6px calc(4px + var(--cdkt-safe-bottom));
+  background: #fff;
+  border-top: 1px solid #ddd;
+}
+
+.bottom-nav button {
+  min-width: 0;
+  min-height: 60px;
+  padding: 5px 2px;
+  border: 0;
+  background: transparent;
+  color: #7b6d63;
+  border-radius: 12px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.bottom-nav button.active {
+  color: #8f1d18;
+  background: #fff3ee;
+}
+
+.bottom-nav span {
+  display: block;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.bottom-nav small {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+/* Restore compact food-card images and prevent excessive crop/zoom. */
+.smart-food-image {
+  position: relative;
+  width: 100%;
+  height: 118px;
+  min-height: 118px;
+  aspect-ratio: auto;
+  overflow: hidden;
+  background: linear-gradient(135deg, #fff2dc, #f4d3ac);
+}
+
+.smart-food-image img {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+
+.smart-food-image.is-loaded img {
+  opacity: 1;
+}
+
+.smart-food-image__skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(
+      90deg,
+      #eee7e1 25%,
+      #faf7f4 50%,
+      #eee7e1 75%
+    );
+  background-size: 200% 100%;
+  animation: cdkt-ui-repair-loading 1.15s linear infinite;
+}
+
+.smart-food-image.is-loaded .smart-food-image__skeleton {
+  display: none;
+}
+
+.smart-food-image--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48px;
+}
+
+@keyframes cdkt-ui-repair-loading {
+  to { background-position: -200% 0; }
+}
+
+@media (max-width: 420px) {
+  .bottom-nav small {
+    font-size: 8px;
+  }
+
+  .smart-food-image {
+    height: 110px;
+    min-height: 110px;
+  }
+}

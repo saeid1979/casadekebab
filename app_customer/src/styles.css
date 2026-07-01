@@ -129,97 +129,58 @@ label{display:block;font-weight:700;margin-top:10px}.segmented{display:grid;grid
   to{opacity:1;transform:translateY(0)}
 }
 
-/* === Casa de Kebab Turco: mobile system navigation safe-area fix v2 === */
+/* === Casa de Kebab Turco: customer UI repair v1 === */
 :root {
-  --cdkt-bottom-nav-content-height: 68px;
-  --cdkt-safe-top: env(safe-area-inset-top, 0px);
-  --cdkt-safe-right: env(safe-area-inset-right, 0px);
   --cdkt-safe-bottom: env(safe-area-inset-bottom, 0px);
-  --cdkt-safe-left: env(safe-area-inset-left, 0px);
+  --cdkt-bottom-nav-height: 72px;
 }
 
-html {
-  width: 100%;
-  min-height: 100%;
-  background: #f7f2ec;
-  -webkit-text-size-adjust: 100%;
-}
-
-body,
-#root {
-  width: 100%;
-  min-height: 100%;
-  min-height: 100dvh;
-}
-
-body {
-  margin: 0;
-  overflow-x: hidden;
-  overscroll-behavior-y: none;
-  padding:
-    var(--cdkt-safe-top)
-    var(--cdkt-safe-right)
-    0
-    var(--cdkt-safe-left);
-}
-
+/* Keep the original visual design and only reserve Android safe space. */
 .app-shell {
-  position: relative;
   min-height: 100vh;
   min-height: 100dvh;
   padding-bottom: calc(
-    var(--cdkt-bottom-nav-content-height) +
+    var(--cdkt-bottom-nav-height) +
     var(--cdkt-safe-bottom) +
-    22px
+    14px
   );
 }
 
 .bottom-nav {
   position: fixed;
-  left: var(--cdkt-safe-left);
-  right: var(--cdkt-safe-right);
+  left: 0;
+  right: 0;
   bottom: 0;
   z-index: 1500;
 
   height: auto;
   min-height: calc(
-    var(--cdkt-bottom-nav-content-height) +
+    var(--cdkt-bottom-nav-height) +
     var(--cdkt-safe-bottom)
   );
 
-  padding:
-    6px
-    8px
-    calc(6px + var(--cdkt-safe-bottom));
-
+  /* The customer app has five menu buttons. */
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: start;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 
-  background: rgba(255, 255, 255, 0.985);
-  border-top: 1px solid #e3d8cd;
-  box-shadow: 0 -10px 28px rgba(30, 20, 12, 0.12);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  padding: 4px 6px calc(4px + var(--cdkt-safe-bottom));
+  background: #fff;
+  border-top: 1px solid #ddd;
 }
 
 .bottom-nav button {
   min-width: 0;
-  min-height: 54px;
-  padding: 6px 4px;
+  min-height: 60px;
+  padding: 5px 2px;
   border: 0;
-  border-radius: 14px;
   background: transparent;
   color: #7b6d63;
+  border-radius: 12px;
 
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
 }
 
 .bottom-nav button.active {
@@ -227,74 +188,88 @@ body {
   background: #fff3ee;
 }
 
-.bottom-nav button:active {
-  transform: scale(0.97);
-}
-
 .bottom-nav span {
   display: block;
-  font-size: 21px;
+  font-size: 20px;
   line-height: 1;
 }
 
 .bottom-nav small {
   display: block;
-  max-width: 100%;
+  width: 100%;
+  margin-top: 3px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
-  line-height: 1.2;
+  font-size: 9px;
+  line-height: 1.15;
   font-weight: 700;
 }
 
-/* Prevent page controls and the final content row from hiding behind the nav. */
-.page {
-  padding-bottom: calc(32px + var(--cdkt-safe-bottom));
+/* Restore compact food-card images and prevent excessive crop/zoom. */
+.smart-food-image {
+  position: relative;
+  width: 100%;
+  height: 118px;
+  min-height: 118px;
+  aspect-ratio: auto;
+  overflow: hidden;
+  background: linear-gradient(135deg, #fff2dc, #f4d3ac);
 }
 
-/* Better behavior while the Android keyboard is open. */
-input,
-textarea,
-select,
-button {
-  scroll-margin-bottom: calc(
-    var(--cdkt-bottom-nav-content-height) +
-    var(--cdkt-safe-bottom) +
-    24px
-  );
+.smart-food-image img {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  opacity: 0;
+  transition: opacity .2s ease;
 }
 
-@supports (padding: max(0px)) {
-  .bottom-nav {
-    padding-bottom: max(
-      6px,
-      calc(6px + env(safe-area-inset-bottom))
+.smart-food-image.is-loaded img {
+  opacity: 1;
+}
+
+.smart-food-image__skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(
+      90deg,
+      #eee7e1 25%,
+      #faf7f4 50%,
+      #eee7e1 75%
     );
-  }
-
-  .app-shell {
-    padding-bottom: max(
-      calc(var(--cdkt-bottom-nav-content-height) + 22px),
-      calc(
-        var(--cdkt-bottom-nav-content-height) +
-        env(safe-area-inset-bottom) +
-        22px
-      )
-    );
-  }
+  background-size: 200% 100%;
+  animation: cdkt-ui-repair-loading 1.15s linear infinite;
 }
 
-@media (max-height: 700px) {
-  :root {
-    --cdkt-bottom-nav-content-height: 62px;
+.smart-food-image.is-loaded .smart-food-image__skeleton {
+  display: none;
+}
+
+.smart-food-image--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48px;
+}
+
+@keyframes cdkt-ui-repair-loading {
+  to { background-position: -200% 0; }
+}
+
+@media (max-width: 420px) {
+  .bottom-nav small {
+    font-size: 8px;
   }
 
-  .bottom-nav button {
-    min-height: 50px;
-  }
-
-  .bottom-nav span {
-    font-size: 19px;
+  .smart-food-image {
+    height: 110px;
+    min-height: 110px;
   }
 }

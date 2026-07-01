@@ -1,0 +1,3 @@
+Place your private Firebase file here after Android exists:
+D:\Python_project\casadekebab\app_customer\android\app\google-services.json
+Do not rename the file.
