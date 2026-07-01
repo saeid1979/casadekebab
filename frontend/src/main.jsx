@@ -33,105 +33,50 @@ const ADMIN_UI_LANGUAGE_KEY = 'cdkt_admin_ui_language';
 
 const ADMIN_UI_TRANSLATIONS = {
   fa: {
-    'Sitio':'سایت', 'Pedidos clásico':'سفارش‌های کلاسیک', 'Menú Admin':'مدیریت منو', 'Ajustes':'تنظیمات',
-    'Resumen':'خلاصه', 'Pedidos vivos':'سفارش‌های زنده', 'Repartidores':'پیک‌ها',
-    'Mapa repartidores en vivo':'نقشه زنده پیک‌ها', 'Clientes':'مشتری‌ها', 'Reportes dinámicos':'گزارش‌های پویا',
-    'Contabilidad':'حسابداری', 'Rentabilidad':'سودآوری', 'Finanzas inteligentes':'مالی هوشمند',
-    'Inventario real':'انبار واقعی', 'Análisis inteligente':'تحلیل هوشمند',
-    'Asistente financiero':'دستیار مالی', 'Informes profesionales':'گزارش‌های حرفه‌ای',
-    'Sistema / Backup':'سیستم / پشتیبان‌گیری', 'Configuración':'تنظیمات',
-    'Categorías / Menú':'دسته‌بندی‌ها / منو', 'Pagos tarjeta':'پرداخت کارت',
-    'Más / Menos vendidos':'پرفروش / کم‌فروش', 'Panel de control':'پنل کنترل',
-    'Actualizar ahora':'به‌روزرسانی', 'Ventas hoy':'فروش امروز', 'Pedidos activos':'سفارش‌های فعال',
-    'Total vendido':'کل فروش', 'Tarjeta / online':'کارت / آنلاین', 'Menú':'منو',
-    'Estado del día':'وضعیت امروز', 'Pedidos recientes':'سفارش‌های اخیر', 'Acciones rápidas':'اقدامات سریع',
-    'Nuevo pedido':'سفارش جدید', 'Actualizar':'به‌روزرسانی', 'Guardar':'ذخیره',
-    'Guardar cambios':'ذخیره تغییرات', 'Cancelar':'لغو', 'Eliminar':'حذف', 'Editar':'ویرایش',
-    'Ver':'مشاهده', 'Buscar':'جستجو', 'Filtrar':'فیلتر', 'Limpiar':'پاک‌کردن',
-    'Fecha':'تاریخ', 'Importe':'مبلغ', 'Descripción':'توضیحات', 'Categoría':'دسته‌بندی',
-    'Pagado por':'پرداخت توسط', 'Método de pago':'روش پرداخت', 'Factura':'فاکتور',
-    'Estado':'وضعیت', 'Acciones':'اقدامات', 'Ingresos':'درآمد', 'Gastos':'هزینه‌ها',
-    'Gasto':'هزینه', 'Ingreso':'درآمد', 'Transferencia':'انتقال', 'Reembolso':'بازپرداخت',
-    'Efectivo':'نقدی', 'Tarjeta':'کارت', 'BBVA':'BBVA', 'Saeid':'سعید', 'Ahmed':'احمد',
-    'Pendiente':'در انتظار', 'Aprobado':'تأییدشده', 'Cancelado':'لغوشده',
-    'Pagado':'پرداخت‌شده', 'Preparando':'در حال آماده‌سازی', 'Listo':'آماده',
-    'En reparto':'در حال ارسال', 'Entregado':'تحویل‌شده',
-    'Crear repartidor':'ایجاد پیک', 'Nombre':'نام', 'Teléfono':'تلفن',
-    'Usuario':'نام کاربری', 'Contraseña':'گذرواژه', 'Activo':'فعال', 'Inactivo':'غیرفعال',
-    'Ubicación':'موقعیت', 'Asignar repartidor':'تخصیص پیک', 'Asignar automáticamente':'تخصیص خودکار',
-    'Administración del menú':'مدیریت منو', 'Nueva categoría':'دسته‌بندی جدید',
-    'Nuevo producto':'محصول جدید', 'Nombre ES':'نام اسپانیایی', 'Nombre EN':'نام انگلیسی',
-    'Precio':'قیمت', 'Disponible':'موجود', 'Orden':'ترتیب', 'Subir imagen':'بارگذاری تصویر',
-    'Restaurante':'رستوران', 'Dirección':'آدرس', 'Horario':'ساعت کاری',
-    'Envío a domicilio':'ارسال به آدرس', 'Recogida en local':'دریافت حضوری',
-    'Cupones':'کوپن‌ها', 'Código':'کد', 'Descuento':'تخفیف', 'Valor':'مقدار',
-    'Pedido mínimo':'حداقل سفارش', 'Primer pedido':'اولین سفارش',
-    'Cargando...':'در حال بارگذاری...', 'Sin datos':'داده‌ای موجود نیست',
-    'Sin pedidos':'سفارشی وجود ندارد', 'Sin clientes':'مشتری وجود ندارد',
-    'Copias de seguridad':'نسخه‌های پشتیبان', 'Crear copia de seguridad':'ایجاد پشتیبان',
-    'Comprobar sistema':'بررسی سیستم', 'Salud del sistema':'سلامت سیستم',
-    'Finanzas e Inventario Inteligente':'مالی و انبار هوشمند',
-    'Compras e Inventario Real':'خرید و انبار واقعی',
-    'Análisis Inteligente de Beneficio':'تحلیل هوشمند سود',
-    'Asistente Financiero Inteligente':'دستیار هوشمند مالی',
-    'Informes profesionales':'گزارش‌های حرفه‌ای',
-    'Actualizar vista previa':'به‌روزرسانی پیش‌نمایش', 'Exportar':'خروجی گرفتن',
-    'Imprimir / Guardar PDF':'چاپ / ذخیره PDF', 'Resumen inteligente de hoy':'خلاصه هوشمند امروز',
-    'Pregunta':'پرسش', 'Enviar resumen por Telegram':'ارسال خلاصه به تلگرام',
-    'Español':'Español', 'فارسی':'فارسی', 'العربية':'العربية',
-    'Admin PRO':'مدیریت حرفه‌ای', 'Panel profesional Casa de Kebab Turco':'پنل حرفه‌ای Casa de Kebab Turco'
+    'Idioma':'زبان','Selector de idioma del panel':'انتخاب زبان پنل','Casa de Kebab Turco Admin':'مدیریت Casa de Kebab Turco',
+    'Panel de control':'پنل کنترل','Pedidos en vivo, repartidor, clientes, contabilidad, menú y ventas en una sola pantalla.':'سفارش‌های زنده، پیک، مشتری‌ها، حسابداری، منو و فروش در یک صفحه.',
+    'Sitio':'سایت','Pedidos clásico':'سفارش‌های کلاسیک','Menú Admin':'مدیریت منو','Ajustes':'تنظیمات','Salir Admin':'خروج مدیر',
+    'Resumen':'خلاصه','Pedidos vivos':'سفارش‌های زنده','Repartidores':'پیک‌ها','Mapa repartidores en vivo':'نقشه زنده پیک‌ها','Clientes':'مشتری‌ها','Reportes dinámicos':'گزارش‌های پویا',
+    'Contabilidad':'حسابداری','Rentabilidad':'سودآوری','Finanzas inteligentes':'مالی هوشمند','Inventario real':'انبار واقعی','Análisis inteligente':'تحلیل هوشمند',
+    'Asistente financiero':'دستیار مالی','Informes profesionales':'گزارش‌های حرفه‌ای','Guía de registro':'راهنمای ثبت داده','Sistema / Backup':'سیستم / پشتیبان‌گیری','Configuración':'تنظیمات',
+    'Categorías / Menú':'دسته‌بندی‌ها / منو','Pagos tarjeta':'پرداخت کارت','Más / Menos vendidos':'پرفروش / کم‌فروش',
+    'Actualizar ahora':'به‌روزرسانی','Actualizar':'به‌روزرسانی','Guardar':'ذخیره','Guardar cambios':'ذخیره تغییرات','Cancelar':'لغو','Eliminar':'حذف','Editar':'ویرایش','Ver':'مشاهده','Buscar':'جستجو','Filtrar':'فیلتر','Limpiar':'پاک‌کردن',
+    'Ventas hoy':'فروش امروز','Pedidos activos':'سفارش‌های فعال','Total vendido':'کل فروش','Tarjeta / online':'کارت / آنلاین','Menú':'منو','Clientes':'مشتری‌ها',
+    'Ventas':'فروش','Pedidos':'سفارش‌ها','Últimos pedidos':'آخرین سفارش‌ها','Pedidos recientes':'سفارش‌های اخیر','Estado del día':'وضعیت امروز','Acciones rápidas':'اقدامات سریع',
+    'Fecha':'تاریخ','Desde':'از تاریخ','Hasta':'تا تاریخ','Importe':'مبلغ','Descripción':'توضیحات','Categoría':'دسته‌بندی','Pagado por':'پرداخت توسط','Método de pago':'روش پرداخت','Factura':'فاکتور','Estado':'وضعیت','Acciones':'اقدامات',
+    'Ingresos':'درآمد','Gastos':'هزینه‌ها','Gasto':'هزینه','Ingreso':'درآمد','Transferencia':'انتقال','Reembolso':'بازپرداخت','Efectivo':'نقدی','Tarjeta':'کارت',
+    'BBVA':'BBVA','Saeid':'سعید','Ahmed':'احمد','Pendiente':'در انتظار','Aprobado':'تأییدشده','Cancelado':'لغوشده','Pagado':'پرداخت‌شده','Preparando':'در حال آماده‌سازی','Listo':'آماده','En reparto':'در حال ارسال','Entregado':'تحویل‌شده',
+    'Crear repartidor':'ایجاد پیک','Nombre':'نام','Teléfono':'تلفن','Usuario':'نام کاربری','Contraseña':'گذرواژه','Activo':'فعال','Inactivo':'غیرفعال','Ubicación':'موقعیت','Asignar repartidor':'تخصیص پیک','Asignar automáticamente':'تخصیص خودکار',
+    'Administración del menú':'مدیریت منو','Nueva categoría':'دسته‌بندی جدید','Nuevo producto':'محصول جدید','Nombre ES':'نام اسپانیایی','Nombre EN':'نام انگلیسی','Precio':'قیمت','Disponible':'موجود','Orden':'ترتیب','Subir imagen':'بارگذاری تصویر',
+    'Restaurante':'رستوران','Dirección':'آدرس','Horario':'ساعت کاری','Envío a domicilio':'ارسال به آدرس','Recogida en local':'دریافت حضوری','Cupones':'کوپن‌ها','Código':'کد','Descuento':'تخفیف','Valor':'مقدار','Pedido mínimo':'حداقل سفارش','Primer pedido':'اولین سفارش',
+    'Cargando...':'در حال بارگذاری...','Sin datos':'داده‌ای موجود نیست','Sin pedidos':'سفارشی وجود ندارد','Sin clientes':'مشتری وجود ندارد','Copias de seguridad':'نسخه‌های پشتیبان','Crear copia de seguridad':'ایجاد پشتیبان','Comprobar sistema':'بررسی سیستم','Salud del sistema':'سلامت سیستم',
+    'Rentabilidad real por producto':'سودآوری واقعی هر محصول','Costes y margen':'هزینه‌ها و حاشیه سود','Actualizar análisis':'به‌روزرسانی تحلیل','Productos configurados':'محصولات پیکربندی‌شده','Ingresos del periodo':'درآمد دوره','Coste estimado vendido':'هزینه تخمینی فروش','Beneficio bruto estimado':'سود ناخالص تخمینی','Bajo margen objetivo':'پایین‌تر از حاشیه سود هدف','Receta y coste del producto':'دستور تهیه و هزینه محصول','Ingredientes y costes':'مواد اولیه و هزینه‌ها',
+    'Finanzas e Inventario Inteligente':'مالی و انبار هوشمند','Compras e Inventario Real':'خرید و انبار واقعی','Análisis Inteligente de Beneficio':'تحلیل هوشمند سود','Asistente Financiero Inteligente':'دستیار هوشمند مالی','Resumen inteligente de hoy':'خلاصه هوشمند امروز','Pregunta':'پرسش','Enviar resumen por Telegram':'ارسال خلاصه به تلگرام',
+    'Actualizar vista previa':'به‌روزرسانی پیش‌نمایش','Exportar':'خروجی گرفتن','Imprimir / Guardar PDF':'چاپ / ذخیره PDF','Español':'Español','فارسی':'فارسی','العربية':'العربية','Admin PRO':'مدیریت حرفه‌ای','Panel profesional Casa de Kebab Turco':'پنل حرفه‌ای Casa de Kebab Turco'
   },
   ar: {
-    'Sitio':'الموقع', 'Pedidos clásico':'الطلبات الكلاسيكية', 'Menú Admin':'إدارة القائمة', 'Ajustes':'الإعدادات',
-    'Resumen':'الملخص', 'Pedidos vivos':'الطلبات المباشرة', 'Repartidores':'السائقون',
-    'Mapa repartidores en vivo':'خريطة السائقين المباشرة', 'Clientes':'العملاء', 'Reportes dinámicos':'تقارير ديناميكية',
-    'Contabilidad':'المحاسبة', 'Rentabilidad':'الربحية', 'Finanzas inteligentes':'المالية الذكية',
-    'Inventario real':'المخزون الفعلي', 'Análisis inteligente':'التحليل الذكي',
-    'Asistente financiero':'المساعد المالي', 'Informes profesionales':'التقارير المهنية',
-    'Sistema / Backup':'النظام / النسخ الاحتياطي', 'Configuración':'الإعدادات',
-    'Categorías / Menú':'الفئات / القائمة', 'Pagos tarjeta':'مدفوعات البطاقة',
-    'Más / Menos vendidos':'الأكثر / الأقل مبيعاً', 'Panel de control':'لوحة التحكم',
-    'Actualizar ahora':'تحديث الآن', 'Ventas hoy':'مبيعات اليوم', 'Pedidos activos':'الطلبات النشطة',
-    'Total vendido':'إجمالي المبيعات', 'Tarjeta / online':'بطاقة / عبر الإنترنت', 'Menú':'القائمة',
-    'Estado del día':'حالة اليوم', 'Pedidos recientes':'الطلبات الأخيرة', 'Acciones rápidas':'إجراءات سريعة',
-    'Nuevo pedido':'طلب جديد', 'Actualizar':'تحديث', 'Guardar':'حفظ',
-    'Guardar cambios':'حفظ التغييرات', 'Cancelar':'إلغاء', 'Eliminar':'حذف', 'Editar':'تعديل',
-    'Ver':'عرض', 'Buscar':'بحث', 'Filtrar':'تصفية', 'Limpiar':'مسح',
-    'Fecha':'التاريخ', 'Importe':'المبلغ', 'Descripción':'الوصف', 'Categoría':'الفئة',
-    'Pagado por':'مدفوع بواسطة', 'Método de pago':'طريقة الدفع', 'Factura':'الفاتورة',
-    'Estado':'الحالة', 'Acciones':'الإجراءات', 'Ingresos':'الإيرادات', 'Gastos':'المصروفات',
-    'Gasto':'مصروف', 'Ingreso':'إيراد', 'Transferencia':'تحويل', 'Reembolso':'استرداد',
-    'Efectivo':'نقدي', 'Tarjeta':'بطاقة', 'BBVA':'BBVA', 'Saeid':'سعيد', 'Ahmed':'أحمد',
-    'Pendiente':'قيد الانتظار', 'Aprobado':'معتمد', 'Cancelado':'ملغى',
-    'Pagado':'مدفوع', 'Preparando':'قيد التحضير', 'Listo':'جاهز',
-    'En reparto':'قيد التوصيل', 'Entregado':'تم التسليم',
-    'Crear repartidor':'إضافة سائق', 'Nombre':'الاسم', 'Teléfono':'الهاتف',
-    'Usuario':'اسم المستخدم', 'Contraseña':'كلمة المرور', 'Activo':'نشط', 'Inactivo':'غير نشط',
-    'Ubicación':'الموقع', 'Asignar repartidor':'تعيين سائق', 'Asignar automáticamente':'تعيين تلقائي',
-    'Administración del menú':'إدارة القائمة', 'Nueva categoría':'فئة جديدة',
-    'Nuevo producto':'منتج جديد', 'Nombre ES':'الاسم الإسباني', 'Nombre EN':'الاسم الإنجليزي',
-    'Precio':'السعر', 'Disponible':'متاح', 'Orden':'الترتيب', 'Subir imagen':'رفع صورة',
-    'Restaurante':'المطعم', 'Dirección':'العنوان', 'Horario':'ساعات العمل',
-    'Envío a domicilio':'توصيل للمنزل', 'Recogida en local':'استلام من المطعم',
-    'Cupones':'الكوبونات', 'Código':'الرمز', 'Descuento':'الخصم', 'Valor':'القيمة',
-    'Pedido mínimo':'الحد الأدنى للطلب', 'Primer pedido':'الطلب الأول',
-    'Cargando...':'جارٍ التحميل...', 'Sin datos':'لا توجد بيانات',
-    'Sin pedidos':'لا توجد طلبات', 'Sin clientes':'لا يوجد عملاء',
-    'Copias de seguridad':'النسخ الاحتياطية', 'Crear copia de seguridad':'إنشاء نسخة احتياطية',
-    'Comprobar sistema':'فحص النظام', 'Salud del sistema':'صحة النظام',
-    'Finanzas e Inventario Inteligente':'المالية والمخزون الذكي',
-    'Compras e Inventario Real':'المشتريات والمخزون الفعلي',
-    'Análisis Inteligente de Beneficio':'التحليل الذكي للأرباح',
-    'Asistente Financiero Inteligente':'المساعد المالي الذكي',
-    'Informes profesionales':'التقارير المهنية',
-    'Actualizar vista previa':'تحديث المعاينة', 'Exportar':'تصدير',
-    'Imprimir / Guardar PDF':'طباعة / حفظ PDF', 'Resumen inteligente de hoy':'الملخص الذكي لليوم',
-    'Pregunta':'اسأل', 'Enviar resumen por Telegram':'إرسال الملخص عبر تيليجرام',
-    'Español':'Español', 'فارسی':'فارسی', 'العربية':'العربية',
-    'Admin PRO':'إدارة احترافية', 'Panel profesional Casa de Kebab Turco':'لوحة Casa de Kebab Turco الاحترافية'
+    'Idioma':'اللغة','Selector de idioma del panel':'اختيار لغة اللوحة','Casa de Kebab Turco Admin':'إدارة Casa de Kebab Turco',
+    'Panel de control':'لوحة التحكم','Pedidos en vivo, repartidor, clientes, contabilidad, menú y ventas en una sola pantalla.':'الطلبات المباشرة والسائقون والعملاء والمحاسبة والقائمة والمبيعات في شاشة واحدة.',
+    'Sitio':'الموقع','Pedidos clásico':'الطلبات الكلاسيكية','Menú Admin':'إدارة القائمة','Ajustes':'الإعدادات','Salir Admin':'تسجيل خروج المدير',
+    'Resumen':'الملخص','Pedidos vivos':'الطلبات المباشرة','Repartidores':'السائقون','Mapa repartidores en vivo':'خريطة السائقين المباشرة','Clientes':'العملاء','Reportes dinámicos':'تقارير ديناميكية',
+    'Contabilidad':'المحاسبة','Rentabilidad':'الربحية','Finanzas inteligentes':'المالية الذكية','Inventario real':'المخزون الفعلي','Análisis inteligente':'التحليل الذكي',
+    'Asistente financiero':'المساعد المالي','Informes profesionales':'التقارير المهنية','Guía de registro':'دليل التسجيل','Sistema / Backup':'النظام / النسخ الاحتياطي','Configuración':'الإعدادات',
+    'Categorías / Menú':'الفئات / القائمة','Pagos tarjeta':'مدفوعات البطاقة','Más / Menos vendidos':'الأكثر / الأقل مبيعاً',
+    'Actualizar ahora':'تحديث الآن','Actualizar':'تحديث','Guardar':'حفظ','Guardar cambios':'حفظ التغييرات','Cancelar':'إلغاء','Eliminar':'حذف','Editar':'تعديل','Ver':'عرض','Buscar':'بحث','Filtrar':'تصفية','Limpiar':'مسح',
+    'Ventas hoy':'مبيعات اليوم','Pedidos activos':'الطلبات النشطة','Total vendido':'إجمالي المبيعات','Tarjeta / online':'بطاقة / عبر الإنترنت','Menú':'القائمة','Clientes':'العملاء',
+    'Ventas':'المبيعات','Pedidos':'الطلبات','Últimos pedidos':'أحدث الطلبات','Pedidos recientes':'الطلبات الأخيرة','Estado del día':'حالة اليوم','Acciones rápidas':'إجراءات سريعة',
+    'Fecha':'التاريخ','Desde':'من','Hasta':'إلى','Importe':'المبلغ','Descripción':'الوصف','Categoría':'الفئة','Pagado por':'مدفوع بواسطة','Método de pago':'طريقة الدفع','Factura':'الفاتورة','Estado':'الحالة','Acciones':'الإجراءات',
+    'Ingresos':'الإيرادات','Gastos':'المصروفات','Gasto':'مصروف','Ingreso':'إيراد','Transferencia':'تحويل','Reembolso':'استرداد','Efectivo':'نقدي','Tarjeta':'بطاقة',
+    'BBVA':'BBVA','Saeid':'سعيد','Ahmed':'أحمد','Pendiente':'قيد الانتظار','Aprobado':'معتمد','Cancelado':'ملغى','Pagado':'مدفوع','Preparando':'قيد التحضير','Listo':'جاهز','En reparto':'قيد التوصيل','Entregado':'تم التسليم',
+    'Crear repartidor':'إضافة سائق','Nombre':'الاسم','Teléfono':'الهاتف','Usuario':'اسم المستخدم','Contraseña':'كلمة المرور','Activo':'نشط','Inactivo':'غير نشط','Ubicación':'الموقع','Asignar repartidor':'تعيين سائق','Asignar automáticamente':'تعيين تلقائي',
+    'Administración del menú':'إدارة القائمة','Nueva categoría':'فئة جديدة','Nuevo producto':'منتج جديد','Nombre ES':'الاسم الإسباني','Nombre EN':'الاسم الإنجليزي','Precio':'السعر','Disponible':'متاح','Orden':'الترتيب','Subir imagen':'رفع صورة',
+    'Restaurante':'المطعم','Dirección':'العنوان','Horario':'ساعات العمل','Envío a domicilio':'توصيل للمنزل','Recogida en local':'استلام من المطعم','Cupones':'الكوبونات','Código':'الرمز','Descuento':'الخصم','Valor':'القيمة','Pedido mínimo':'الحد الأدنى للطلب','Primer pedido':'الطلب الأول',
+    'Cargando...':'جارٍ التحميل...','Sin datos':'لا توجد بيانات','Sin pedidos':'لا توجد طلبات','Sin clientes':'لا يوجد عملاء','Copias de seguridad':'النسخ الاحتياطية','Crear copia de seguridad':'إنشاء نسخة احتياطية','Comprobar sistema':'فحص النظام','Salud del sistema':'صحة النظام',
+    'Rentabilidad real por producto':'الربحية الفعلية لكل منتج','Costes y margen':'التكاليف والهامش','Actualizar análisis':'تحديث التحليل','Productos configurados':'المنتجات المهيأة','Ingresos del periodo':'إيرادات الفترة','Coste estimado vendido':'التكلفة التقديرية للمبيعات','Beneficio bruto estimado':'إجمالي الربح التقديري','Bajo margen objetivo':'أقل من هامش الربح المستهدف','Receta y coste del producto':'وصفة وتكلفة المنتج','Ingredientes y costes':'المكونات والتكاليف',
+    'Finanzas e Inventario Inteligente':'المالية والمخزون الذكي','Compras e Inventario Real':'المشتريات والمخزون الفعلي','Análisis Inteligente de Beneficio':'التحليل الذكي للأرباح','Asistente Financiero Inteligente':'المساعد المالي الذكي','Resumen inteligente de hoy':'الملخص الذكي لليوم','Pregunta':'اسأل','Enviar resumen por Telegram':'إرسال الملخص عبر تيليجرام',
+    'Actualizar vista previa':'تحديث المعاينة','Exportar':'تصدير','Imprimir / Guardar PDF':'طباعة / حفظ PDF','Español':'Español','فارسی':'فارسی','العربية':'العربية','Admin PRO':'إدارة احترافية','Panel profesional Casa de Kebab Turco':'لوحة Casa de Kebab Turco الاحترافية'
   }
 };
-
 function adminUiOriginalText(node) {
   if (!node.dataset.cdktOriginalText) node.dataset.cdktOriginalText = node.textContent;
   return node.dataset.cdktOriginalText;
@@ -161,6 +106,24 @@ function applyAdminUiLanguage(language) {
   document.documentElement.dataset.adminLanguage = language;
 }
 
+
+function changeAdminUiLanguage(nextLanguage) {
+  const language = ['es','fa','ar'].includes(nextLanguage) ? nextLanguage : 'es';
+  localStorage.setItem(ADMIN_UI_LANGUAGE_KEY, language);
+  applyAdminUiLanguage(language);
+  window.dispatchEvent(new Event('cdkt-admin-language-change'));
+}
+function useGlobalAdminLanguage() {
+  const [language, setLanguage] = useState(() => localStorage.getItem(ADMIN_UI_LANGUAGE_KEY) || 'es');
+  useEffect(() => {
+    const sync = () => setLanguage(localStorage.getItem(ADMIN_UI_LANGUAGE_KEY) || 'es');
+    window.addEventListener('cdkt-admin-language-change', sync);
+    window.addEventListener('storage', sync);
+    return () => { window.removeEventListener('cdkt-admin-language-change', sync); window.removeEventListener('storage', sync); };
+  }, []);
+  return language;
+}
+
 function AdminLanguageSwitch() {
   const [language, setLanguage] = useState(() => localStorage.getItem(ADMIN_UI_LANGUAGE_KEY) || 'es');
 
@@ -173,10 +136,7 @@ function AdminLanguageSwitch() {
   }, []);
 
   function changeLanguage(nextLanguage) {
-    localStorage.setItem(ADMIN_UI_LANGUAGE_KEY, nextLanguage);
-    setLanguage(nextLanguage);
-    applyAdminUiLanguage(nextLanguage);
-    window.dispatchEvent(new Event('cdkt-admin-language-change'));
+    changeAdminUiLanguage(nextLanguage);
   }
 
   return <aside className="admin-global-language" data-cdkt-i18n-skip="true" aria-label="Selector de idioma del panel">
@@ -3503,7 +3463,7 @@ function SmartFinanceInventoryPanel({
   onSaveRecurring,
   onDeleteRecurring,
 }) {
-  const [language, setLanguage] = useState('es');
+  const language = useGlobalAdminLanguage(); const setLanguage = changeAdminUiLanguage;
   const [period, setPeriod] = useState(() => {
     const today = new Date().toISOString().slice(0, 10);
     return { date_from: today, date_to: today };
@@ -3663,7 +3623,7 @@ function SmartFinanceInventoryPanel({
 
 
 function RealInventoryPanel({ expenseCategories = [] }) {
-  const [language, setLanguage] = useState('es');
+  const language = useGlobalAdminLanguage(); const setLanguage = changeAdminUiLanguage;
   const [data, setData] = useState({ ingredients: [], suggested_purchase_list: [], recent_movements: [] });
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState('purchase');
@@ -3717,7 +3677,7 @@ function RealInventoryPanel({ expenseCategories = [] }) {
 
 
 function ProfitIntelligencePanel() {
-  const [lang,setLang]=useState('es');
+  const lang = useGlobalAdminLanguage(); const setLang = changeAdminUiLanguage;
   const [data,setData]=useState(null);
   const [loading,setLoading]=useState(false);
   const [targets,setTargets]=useState({monthly_revenue_target:'0',monthly_profit_target:'0'});
@@ -3740,7 +3700,7 @@ function ProfitIntelligencePanel() {
 
 
 function ManagementAssistantPanel() {
-  const [lang,setLang]=useState('es');
+  const lang = useGlobalAdminLanguage(); const setLang = changeAdminUiLanguage;
   const [brief,setBrief]=useState(null);
   const [question,setQuestion]=useState('');
   const [conversation,setConversation]=useState([]);
@@ -3761,7 +3721,7 @@ function ManagementAssistantPanel() {
 
 
 function AdminOperationsGuide() {
-  const [language, setLanguage] = useState(() => localStorage.getItem('cdkt_admin_ui_language') || 'es');
+  const language = useGlobalAdminLanguage(); const setLanguage = changeAdminUiLanguage;
   const guides = {
     es: {
       eyebrow:'GUÍA OPERATIVA', title:'Cómo registrar datos y calcular beneficio correctamente',

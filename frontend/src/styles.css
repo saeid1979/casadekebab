@@ -3059,3 +3059,23 @@ html[data-admin-language="ar"] .admin-pro-page textarea{
   .admin-language-title{display:none!important}
 }
 
+/* v30 global language synchronization for all Admin panels */
+.admin-pro-page,.dashboard-page,.menu-admin-page,.settings-page{transition:direction .15s ease}
+html[data-admin-language="fa"] .admin-pro-page,
+html[data-admin-language="ar"] .admin-pro-page{direction:rtl;text-align:right}
+html[data-admin-language="fa"] .admin-pro-page .admin-tabs,
+html[data-admin-language="ar"] .admin-pro-page .admin-tabs,
+html[data-admin-language="fa"] .admin-pro-page .admin-table-wrap,
+html[data-admin-language="ar"] .admin-pro-page .admin-table-wrap{direction:rtl}
+html[data-admin-language="fa"] .admin-pro-page th,
+html[data-admin-language="fa"] .admin-pro-page td,
+html[data-admin-language="ar"] .admin-pro-page th,
+html[data-admin-language="ar"] .admin-pro-page td{text-align:right}
+html[data-admin-language="fa"] .admin-pro-page input,
+html[data-admin-language="fa"] .admin-pro-page textarea,
+html[data-admin-language="fa"] .admin-pro-page select,
+html[data-admin-language="ar"] .admin-pro-page input,
+html[data-admin-language="ar"] .admin-pro-page textarea,
+html[data-admin-language="ar"] .admin-pro-page select{text-align:right}
+.admin-pro-page .smart-language-switch{display:none!important}
+
