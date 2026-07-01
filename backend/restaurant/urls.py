@@ -144,6 +144,10 @@ from .views import (
     admin_smart_finance_overview,
     admin_smart_finance_recurring_costs,
     admin_smart_finance_recurring_cost_detail,
+    admin_inventory_real_overview,
+    admin_inventory_purchase,
+    admin_inventory_waste,
+    admin_inventory_adjustment,
 
 )
 
@@ -206,6 +210,12 @@ urlpatterns = [
     path('admin/smart-finance/overview/', admin_smart_finance_overview, name='admin-smart-finance-overview'),
     path('admin/smart-finance/recurring-costs/', admin_smart_finance_recurring_costs, name='admin-smart-finance-recurring-costs'),
     path('admin/smart-finance/recurring-costs/<int:rule_id>/', admin_smart_finance_recurring_cost_detail, name='admin-smart-finance-recurring-cost-detail'),
+
+    # Admin real inventory - phase 2
+    path('admin/inventory/overview/', admin_inventory_real_overview, name='admin-inventory-real-overview'),
+    path('admin/inventory/purchase/', admin_inventory_purchase, name='admin-inventory-purchase'),
+    path('admin/inventory/waste/', admin_inventory_waste, name='admin-inventory-waste'),
+    path('admin/inventory/adjustment/', admin_inventory_adjustment, name='admin-inventory-adjustment'),
 
     # Admin partner accounting
 

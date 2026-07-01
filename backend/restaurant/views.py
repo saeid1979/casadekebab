@@ -590,6 +590,8 @@ def update_order_status(request, order_code):
     order.save(update_fields=['status', 'updated_at'])
     if old_status != new_status:
         transaction.on_commit(lambda: send_order_status_push(order))
+    if new_status == Order.STATUS_DELIVERED:
+        consume_inventory_for_order(order)
 
     # If the restaurant marks a delivery order as ready or out for delivery and
     # no rider is selected yet, automatically choose the freest active rider.
@@ -3566,4 +3568,303 @@ def admin_smart_finance_recurring_cost_detail(request, rule_id):
     except (ValueError, TypeError, ExpenseCategory.DoesNotExist) as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     return Response(_smart_finance_rule_payload(row))
+
+# ============================================================
+# v22 Real Inventory: purchases, waste, adjustments, sale usage
+# ============================================================
+
+def _inventory_decimal(value, default='0'):
+    return Decimal(str(value if value not in (None, '') else default))
+
+
+def _inventory_movement_payload(row):
+    return {
+        'id': row.id,
+        'ingredient_id': row.ingredient_id,
+        'ingredient_name': row.ingredient.name if hasattr(row, 'ingredient') else '',
+        'unit': row.ingredient.unit if hasattr(row, 'ingredient') else '',
+        'movement_type': row.movement_type,
+        'quantity_delta': float(row.quantity_delta or 0),
+        'unit_cost_snapshot': float(row.unit_cost_snapshot or 0),
+        'total_cost': float(row.total_cost or 0),
+        'supplier_name': row.supplier_name or '',
+        'invoice_number': row.invoice_number or '',
+        'reference': row.reference or '',
+        'notes': row.notes or '',
+        'occurred_at': row.occurred_at.isoformat() if row.occurred_at else '',
+    }
+
+
+def _inventory_apply_movement(*, ingredient_id, movement_type, quantity_delta, unit_cost_snapshot=None,
+                              total_cost=None, order_item=None, financial_entry=None, supplier_name='',
+                              invoice_number='', reference='', notes='', occurred_at=None, username=''):
+    from .models import Ingredient, InventoryMovement
+
+    with transaction.atomic():
+        ingredient = Ingredient.objects.select_for_update().get(id=ingredient_id)
+        if order_item and movement_type == InventoryMovement.TYPE_SALE:
+            existing = InventoryMovement.objects.filter(
+                order_item=order_item,
+                ingredient=ingredient,
+                movement_type=InventoryMovement.TYPE_SALE,
+            ).first()
+            if existing:
+                return existing, False
+
+        delta = _inventory_decimal(quantity_delta)
+        unit_cost = _inventory_decimal(
+            unit_cost_snapshot if unit_cost_snapshot is not None else ingredient.unit_cost,
+            '0.0000'
+        )
+        total = _inventory_decimal(
+            total_cost if total_cost is not None else abs(delta) * unit_cost,
+            '0.00'
+        )
+        row = InventoryMovement.objects.create(
+            ingredient=ingredient,
+            movement_type=movement_type,
+            quantity_delta=delta,
+            unit_cost_snapshot=unit_cost,
+            total_cost=total,
+            order_item=order_item,
+            financial_entry=financial_entry,
+            supplier_name=str(supplier_name or '').strip(),
+            invoice_number=str(invoice_number or '').strip(),
+            reference=str(reference or '').strip(),
+            notes=str(notes or '').strip(),
+            occurred_at=occurred_at or timezone.now(),
+            created_by_username=str(username or '').strip(),
+        )
+        ingredient.stock_quantity = _inventory_decimal(ingredient.stock_quantity) + delta
+        if movement_type == InventoryMovement.TYPE_PURCHASE and unit_cost >= 0:
+            ingredient.unit_cost = unit_cost
+        ingredient.save(update_fields=['stock_quantity', 'unit_cost', 'updated_at'])
+        return row, True
+
+
+def consume_inventory_for_order(order):
+    """Deduct recipe components only once, when an order reaches Delivered."""
+    from .models import ProductCostProfile, InventoryMovement
+
+    if order.status != Order.STATUS_DELIVERED:
+        return {'created': 0, 'skipped': 0}
+
+    order_items = order.items.select_related('menu_item').all()
+    profiles = {
+        profile.menu_item_id: profile
+        for profile in ProductCostProfile.objects.prefetch_related('components__ingredient').filter(
+            menu_item_id__in=[row.menu_item_id for row in order_items if row.menu_item_id]
+        )
+    }
+    created = 0
+    skipped = 0
+    for order_item in order_items:
+        profile = profiles.get(order_item.menu_item_id)
+        if not profile:
+            continue
+        for component in profile.components.all():
+            quantity = _inventory_decimal(component.quantity) * _inventory_decimal(order_item.quantity)
+            if quantity <= 0:
+                continue
+            _, was_created = _inventory_apply_movement(
+                ingredient_id=component.ingredient_id,
+                movement_type=InventoryMovement.TYPE_SALE,
+                quantity_delta=-quantity,
+                unit_cost_snapshot=component.ingredient.unit_cost,
+                total_cost=quantity * _inventory_decimal(component.ingredient.unit_cost),
+                order_item=order_item,
+                reference=f'Pedido {order.order_code}',
+                notes=f'Consumo automático: {order_item.name_snapshot}',
+                occurred_at=order.updated_at or timezone.now(),
+                username='system',
+            )
+            if was_created:
+                created += 1
+            else:
+                skipped += 1
+    return {'created': created, 'skipped': skipped}
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_inventory_real_overview(request):
+    from datetime import timedelta
+    from .models import Ingredient, InventoryMovement, RecipeIngredient
+
+    today = timezone.localdate()
+    days = max(1, min(90, int(request.query_params.get('days', 14) or 14)))
+    start = today - timedelta(days=days - 1)
+
+    sales = (
+        Order.objects.filter(created_at__date__gte=start, created_at__date__lte=today)
+        .exclude(status=Order.STATUS_CANCELLED)
+        .filter(status=Order.STATUS_DELIVERED)
+        .values('items__menu_item_id')
+        .annotate(units=Sum('items__quantity'))
+    )
+    units_by_item = {row['items__menu_item_id']: _inventory_decimal(row['units']) for row in sales if row.get('items__menu_item_id')}
+    daily_usage = {}
+    for component in RecipeIngredient.objects.select_related('profile', 'ingredient').all():
+        sold = units_by_item.get(component.profile.menu_item_id, Decimal('0.00'))
+        if sold:
+            daily_usage[component.ingredient_id] = daily_usage.get(component.ingredient_id, Decimal('0.00')) + (
+                _inventory_decimal(component.quantity) * sold / Decimal(days)
+            )
+
+    ingredients = []
+    suggestions = []
+    for ingredient in Ingredient.objects.filter(is_active=True).order_by('name'):
+        stock = _inventory_decimal(ingredient.stock_quantity)
+        average = daily_usage.get(ingredient.id, Decimal('0.00'))
+        reorder = _inventory_decimal(ingredient.reorder_level)
+        days_left = (stock / average) if average > 0 else None
+        target = max(reorder, average * Decimal('7'))
+        suggested_quantity = max(Decimal('0.00'), target - stock)
+        status_name = 'ok'
+        if days_left is not None and days_left <= Decimal('1.5'):
+            status_name = 'urgent'
+        elif stock <= reorder:
+            status_name = 'low'
+        row = {
+            'id': ingredient.id,
+            'name': ingredient.name,
+            'unit': ingredient.unit,
+            'stock_quantity': float(stock),
+            'unit_cost': float(ingredient.unit_cost or 0),
+            'reorder_level': float(reorder),
+            'supplier_name': ingredient.supplier_name or '',
+            'average_daily_usage': float(average.quantize(Decimal('0.001'))),
+            'estimated_days_left': float(days_left.quantize(Decimal('0.1'))) if days_left is not None else None,
+            'suggested_purchase_quantity': float(suggested_quantity.quantize(Decimal('0.001'))),
+            'status': status_name,
+        }
+        ingredients.append(row)
+        if suggested_quantity > 0:
+            suggestions.append(row)
+
+    movements = InventoryMovement.objects.select_related('ingredient').order_by('-occurred_at', '-id')[:80]
+    return Response({
+        'days_window': days,
+        'ingredients': ingredients,
+        'suggested_purchase_list': suggestions,
+        'recent_movements': [_inventory_movement_payload(row) for row in movements],
+    })
+
+
+@api_view(['POST'])
+@admin_token_required
+def admin_inventory_purchase(request):
+    from .models import Ingredient, RestaurantFinancialEntry, ExpenseCategory, InventoryMovement
+    from django.utils.dateparse import parse_datetime, parse_date
+
+    data = request.data or {}
+    try:
+        ingredient = Ingredient.objects.get(id=int(data.get('ingredient_id')))
+        quantity = _inventory_decimal(data.get('quantity'))
+        total_amount = _inventory_decimal(data.get('total_amount'))
+        if quantity <= 0 or total_amount < 0:
+            raise ValueError('La cantidad debe ser mayor que cero y el importe no puede ser negativo.')
+        occurred = parse_datetime(str(data.get('occurred_at') or ''))
+        if not occurred:
+            purchase_date = parse_date(str(data.get('purchase_date') or '')) or timezone.localdate()
+            occurred = timezone.make_aware(timezone.datetime.combine(purchase_date, timezone.datetime.min.time()))
+        unit_cost = (total_amount / quantity) if quantity else Decimal('0.0000')
+        category = None
+        if data.get('category_id'):
+            category = ExpenseCategory.objects.get(id=int(data['category_id']))
+        else:
+            category, _ = ExpenseCategory.objects.get_or_create(name='Materias primas')
+        entry = RestaurantFinancialEntry.objects.create(
+            entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+            title=f'Compra: {ingredient.name}',
+            description=str(data.get('notes') or '').strip(),
+            amount=total_amount,
+            entry_date=occurred.date(),
+            category=category,
+            paid_by=str(data.get('paid_by') or RestaurantFinancialEntry.PARTY_BBVA),
+            payment_method=str(data.get('payment_method') or RestaurantFinancialEntry.PAYMENT_BBVA),
+            invoice_number=str(data.get('invoice_number') or '').strip(),
+            status=RestaurantFinancialEntry.STATUS_APPROVED,
+            created_by_username=request.admin_user.get_username(),
+            updated_by_username=request.admin_user.get_username(),
+        )
+        movement, _ = _inventory_apply_movement(
+            ingredient_id=ingredient.id,
+            movement_type=InventoryMovement.TYPE_PURCHASE,
+            quantity_delta=quantity,
+            unit_cost_snapshot=unit_cost,
+            total_cost=total_amount,
+            financial_entry=entry,
+            supplier_name=str(data.get('supplier_name') or ingredient.supplier_name or '').strip(),
+            invoice_number=str(data.get('invoice_number') or '').strip(),
+            reference='Compra de inventario',
+            notes=str(data.get('notes') or '').strip(),
+            occurred_at=occurred,
+            username=request.admin_user.get_username(),
+        )
+        if data.get('supplier_name'):
+            ingredient.supplier_name = str(data['supplier_name']).strip()
+            ingredient.save(update_fields=['supplier_name', 'updated_at'])
+    except (ValueError, TypeError, Ingredient.DoesNotExist, ExpenseCategory.DoesNotExist) as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({
+        'success': True,
+        'movement': _inventory_movement_payload(movement),
+        'financial_entry_id': entry.id,
+    }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@admin_token_required
+def admin_inventory_waste(request):
+    from .models import Ingredient, InventoryMovement
+    from django.utils.dateparse import parse_datetime
+
+    data = request.data or {}
+    try:
+        ingredient = Ingredient.objects.get(id=int(data.get('ingredient_id')))
+        quantity = _inventory_decimal(data.get('quantity'))
+        if quantity <= 0:
+            raise ValueError('La cantidad de desperdicio debe ser mayor que cero.')
+        occurred = parse_datetime(str(data.get('occurred_at') or '')) or timezone.now()
+        movement, _ = _inventory_apply_movement(
+            ingredient_id=ingredient.id,
+            movement_type=InventoryMovement.TYPE_WASTE,
+            quantity_delta=-quantity,
+            unit_cost_snapshot=ingredient.unit_cost,
+            total_cost=quantity * _inventory_decimal(ingredient.unit_cost),
+            reference='Merma / desperdicio',
+            notes=str(data.get('notes') or '').strip(),
+            occurred_at=occurred,
+            username=request.admin_user.get_username(),
+        )
+    except (ValueError, TypeError, Ingredient.DoesNotExist) as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'success': True, 'movement': _inventory_movement_payload(movement)}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@admin_token_required
+def admin_inventory_adjustment(request):
+    from .models import Ingredient, InventoryMovement
+
+    data = request.data or {}
+    try:
+        ingredient = Ingredient.objects.get(id=int(data.get('ingredient_id')))
+        delta = _inventory_decimal(data.get('quantity_delta'))
+        if delta == 0:
+            raise ValueError('El ajuste no puede ser cero.')
+        movement, _ = _inventory_apply_movement(
+            ingredient_id=ingredient.id,
+            movement_type=InventoryMovement.TYPE_ADJUSTMENT,
+            quantity_delta=delta,
+            unit_cost_snapshot=ingredient.unit_cost,
+            total_cost=abs(delta) * _inventory_decimal(ingredient.unit_cost),
+            reference='Ajuste manual',
+            notes=str(data.get('notes') or '').strip(),
+            username=request.admin_user.get_username(),
+        )
+    except (ValueError, TypeError, Ingredient.DoesNotExist) as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'success': True, 'movement': _inventory_movement_payload(movement)}, status=status.HTTP_201_CREATED)
 

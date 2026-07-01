@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup, Ingredient, ProductCostProfile, RecipeIngredient, RecurringExpenseRule
+from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup, Ingredient, ProductCostProfile, RecipeIngredient, RecurringExpenseRule, InventoryMovement
 
 class MenuOptionInline(admin.TabularInline):
     model = MenuOption
@@ -249,3 +249,10 @@ class RecurringExpenseRuleAdmin(admin.ModelAdmin):
     list_filter = ('frequency', 'paid_by', 'is_active', 'category')
     list_editable = ('is_active',)
     search_fields = ('title', 'notes', 'category__name')
+
+@admin.register(InventoryMovement)
+class InventoryMovementAdmin(admin.ModelAdmin):
+    list_display = ('occurred_at', 'ingredient', 'movement_type', 'quantity_delta', 'total_cost', 'supplier_name', 'reference')
+    list_filter = ('movement_type', 'ingredient', 'occurred_at')
+    search_fields = ('ingredient__name', 'supplier_name', 'invoice_number', 'reference', 'notes')
+    readonly_fields = ('created_at',)

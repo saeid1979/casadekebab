@@ -1474,3 +1474,47 @@ class RecurringExpenseRule(models.Model):
     def __str__(self):
         return f'{self.title} ({self.frequency})'
 
+# v22 Real Inventory, purchases, waste and automatic consumption
+class InventoryMovement(models.Model):
+    TYPE_PURCHASE = 'purchase'
+    TYPE_SALE = 'sale'
+    TYPE_WASTE = 'waste'
+    TYPE_ADJUSTMENT = 'adjustment'
+    TYPE_CHOICES = [
+        (TYPE_PURCHASE, 'Compra'),
+        (TYPE_SALE, 'Consumo por venta'),
+        (TYPE_WASTE, 'Merma / desperdicio'),
+        (TYPE_ADJUSTMENT, 'Ajuste manual'),
+    ]
+
+    ingredient = models.ForeignKey(Ingredient, on_delete=models.PROTECT, related_name='inventory_movements')
+    movement_type = models.CharField(max_length=16, choices=TYPE_CHOICES, db_index=True)
+    quantity_delta = models.DecimalField(max_digits=12, decimal_places=3)
+    unit_cost_snapshot = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0.0000'))
+    total_cost = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    order_item = models.ForeignKey('OrderItem', on_delete=models.SET_NULL, null=True, blank=True, related_name='inventory_movements')
+    financial_entry = models.ForeignKey(RestaurantFinancialEntry, on_delete=models.SET_NULL, null=True, blank=True, related_name='inventory_movements')
+    supplier_name = models.CharField(max_length=160, blank=True, default='')
+    invoice_number = models.CharField(max_length=100, blank=True, default='')
+    reference = models.CharField(max_length=180, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+    created_by_username = models.CharField(max_length=150, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-occurred_at', '-id']
+        indexes = [
+            models.Index(fields=['ingredient', 'occurred_at']),
+            models.Index(fields=['movement_type', 'occurred_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['order_item', 'ingredient', 'movement_type'],
+                name='unique_inventory_sale_per_order_item_ingredient_type',
+            )
+        ]
+
+    def __str__(self):
+        return f'{self.ingredient.name} {self.movement_type} {self.quantity_delta}'
+
