@@ -4043,6 +4043,14 @@ function DailyManagementToolbar({ activeTab, onNavigate }) {
   </nav>;
 }
 
+function isDailyFinanceTab(tab) {
+  const keys = typeof DAILY_FINANCE_TABS !== 'undefined' ? DAILY_FINANCE_TABS : [];
+  if (Array.isArray(keys)) return keys.includes(tab);
+  if (keys && typeof keys.has === 'function') return keys.has(tab);
+  if (keys && typeof keys.includes === 'function') return keys.includes(tab);
+  return false;
+}
+
 function DashboardApp() {
   usePageChrome();
   if (!getAdminToken()) return <AdminLoginApp />;
@@ -5271,7 +5279,7 @@ function DashboardApp() {
       {tab === 'daily-management' && <DailyManagementHub activeTab={tab} onNavigate={(nextTab) => { setTab(nextTab); if (nextTab === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }} />}
 
 
-      {DAILY_FINANCE_TABS.has(tab) && <DailyManagementSubnav activeTab={tab} onGo={(nextTab) => { setTab(nextTab); if (nextTab === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }} />}
+      {isDailyFinanceTab(tab) && <DailyManagementSubnav activeTab={tab} onGo={(nextTab) => { setTab(nextTab); if (nextTab === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }} />}
 
       {tab === 'daily-management' && <DailyManagementHub activeTab={tab} onGo={(nextTab) => { setTab(nextTab); if (nextTab === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }} />}
 
