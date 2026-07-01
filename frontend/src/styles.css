@@ -3085,3 +3085,7 @@ html[data-admin-language="ar"] .admin-pro-page select{text-align:right}
 /* v32 Create ingredient directly inside real inventory */
 .inventory-action-card{min-width:0}.inventory-action-card .real-mode-switch{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:15px}.inventory-action-card .real-mode-switch button{white-space:normal;min-height:48px}@media(max-width:620px){.inventory-action-card .real-mode-switch{grid-template-columns:1fr}.inventory-action-card .smart-recurring-form{display:grid;gap:8px}}
 
+/* v33 Admin stock adjustment from daily management */
+.inventory-action-card .real-mode-switch{grid-template-columns:repeat(4,minmax(0,1fr))}
+.inventory-adjust-box{display:grid;gap:10px;padding:12px;border:1px dashed #d9b7a9;border-radius:12px;background:#fffaf5}.inventory-adjust-box p{margin:0;color:#66574d;font-size:13px;line-height:1.55}.inventory-current-stock,.inventory-adjust-delta{padding:10px;border-radius:10px;background:#f7eee7;color:#4d2b20;font-size:14px}.inventory-adjust-delta.positive{background:#e8f7eb;color:#176b35}.inventory-adjust-delta.negative{background:#fff0ee;color:#a3221c}@media(max-width:760px){.inventory-action-card .real-mode-switch{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
