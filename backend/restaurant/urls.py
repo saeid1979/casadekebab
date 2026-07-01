@@ -141,6 +141,9 @@ from .views import (
     admin_profitability_recipe,
     admin_profitability_report,
     public_customer_menu_highlights,
+    admin_smart_finance_overview,
+    admin_smart_finance_recurring_costs,
+    admin_smart_finance_recurring_cost_detail,
 
 )
 
@@ -198,6 +201,11 @@ urlpatterns = [
     path('push/test/', test_customer_push, name='push-test'),
 
 
+
+    # Admin smart finance & inventory - phase 1
+    path('admin/smart-finance/overview/', admin_smart_finance_overview, name='admin-smart-finance-overview'),
+    path('admin/smart-finance/recurring-costs/', admin_smart_finance_recurring_costs, name='admin-smart-finance-recurring-costs'),
+    path('admin/smart-finance/recurring-costs/<int:rule_id>/', admin_smart_finance_recurring_cost_detail, name='admin-smart-finance-recurring-cost-detail'),
 
     # Admin partner accounting
 

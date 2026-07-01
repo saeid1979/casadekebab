@@ -3330,6 +3330,174 @@ function ProfitabilityPanel({
   </section>;
 }
 
+
+function SmartFinanceInventoryPanel({
+  financeData,
+  recurringCosts,
+  expenseCategories,
+  loading,
+  onRefresh,
+  onSaveRecurring,
+  onDeleteRecurring,
+}) {
+  const [language, setLanguage] = useState('es');
+  const [period, setPeriod] = useState(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return { date_from: today, date_to: today };
+  });
+  const [form, setForm] = useState({
+    title: '',
+    amount: '',
+    frequency: 'monthly',
+    category_id: '',
+    paid_by: 'bbva',
+    start_date: new Date().toISOString().slice(0, 10),
+    notes: '',
+  });
+
+  const tr = {
+    es: {
+      title: 'Finanzas e Inventario Inteligente', subtitle: 'Beneficio estimado, costes registrados, costes recurrentes y alertas de stock.',
+      today: 'Hoy', week: 'Semana', month: 'Mes', refresh: 'Actualizar análisis',
+      sales: 'Ventas netas', actual: 'Gastos registrados', recurring: 'Costes recurrentes estimados',
+      net: 'Resultado estimado', orders: 'Pedidos', productMargin: 'Margen de productos',
+      forecast: 'Previsión basada en los últimos 14 días', next7: 'Resultado estimado próximos 7 días', next30: 'Resultado estimado próximos 30 días',
+      breakeven: 'Punto de equilibrio diario', need: 'Ventas mínimas diarias necesarias', unavailable: 'Completa las recetas de coste para calcularlo.',
+      alerts: 'Alertas inteligentes', inventory: 'Stock y alertas de inventario', ingredient: 'Ingrediente', stock: 'Stock', dailyUse: 'Consumo/día', days: 'Días', state: 'Estado',
+      rules: 'Costes fijos y recurrentes', newRule: 'Añadir coste recurrente', name: 'Concepto', amount: 'Importe (€)', frequency: 'Frecuencia', category: 'Categoría', paidBy: 'Pagado por', start: 'Fecha inicial', notes: 'Notas', save: 'Guardar coste', delete: 'Eliminar',
+      daily: 'Diario', weekly: 'Semanal', monthly: 'Mensual', active: 'Activo', noAlerts: 'No hay alertas críticas.', noRules: 'Todavía no hay costes recurrentes.', noStock: 'No hay ingredientes configurados todavía.',
+      cashWarning: 'Importante: los costes recurrentes son una previsión. No registres el mismo recibo de nuevo en Contabilidad.',
+    },
+    fa: {
+      title: 'مالی و انبار هوشمند', subtitle: 'سود تخمینی، هزینه‌های ثبت‌شده، هزینه‌های تکراری و هشدارهای موجودی.',
+      today: 'امروز', week: 'هفته', month: 'ماه', refresh: 'به‌روزرسانی تحلیل',
+      sales: 'فروش خالص', actual: 'هزینه‌های ثبت‌شده', recurring: 'هزینه‌های تکراری تخمینی',
+      net: 'نتیجه تخمینی', orders: 'سفارش‌ها', productMargin: 'حاشیه سود غذاها',
+      forecast: 'پیش‌بینی بر اساس ۱۴ روز اخیر', next7: 'نتیجه تخمینی ۷ روز آینده', next30: 'نتیجه تخمینی ۳۰ روز آینده',
+      breakeven: 'نقطه سربه‌سر روزانه', need: 'حداقل فروش روزانه لازم', unavailable: 'برای محاسبه، هزینه و دستور غذای محصولات را کامل کنید.',
+      alerts: 'هشدارهای هوشمند', inventory: 'موجودی و هشدارهای انبار', ingredient: 'ماده اولیه', stock: 'موجودی', dailyUse: 'مصرف روزانه', days: 'روز باقی‌مانده', state: 'وضعیت',
+      rules: 'هزینه‌های ثابت و تکراری', newRule: 'افزودن هزینه تکراری', name: 'عنوان هزینه', amount: 'مبلغ (€)', frequency: 'تکرار', category: 'دسته‌بندی', paidBy: 'پرداخت‌کننده', start: 'تاریخ شروع', notes: 'توضیحات', save: 'ذخیره هزینه', delete: 'حذف',
+      daily: 'روزانه', weekly: 'هفتگی', monthly: 'ماهانه', active: 'فعال', noAlerts: 'هشدار مهمی وجود ندارد.', noRules: 'هنوز هزینه تکراری ثبت نشده است.', noStock: 'هنوز ماده اولیه‌ای تعریف نشده است.',
+      cashWarning: 'مهم: هزینه‌های تکراری برای پیش‌بینی هستند؛ همان قبض را دوباره در بخش حسابداری ثبت نکنید.',
+    },
+    ar: {
+      title: 'المالية والمخزون الذكي', subtitle: 'الربح التقديري، المصروفات المسجلة، التكاليف المتكررة وتنبيهات المخزون.',
+      today: 'اليوم', week: 'الأسبوع', month: 'الشهر', refresh: 'تحديث التحليل',
+      sales: 'صافي المبيعات', actual: 'المصروفات المسجلة', recurring: 'التكاليف المتكررة التقديرية',
+      net: 'النتيجة التقديرية', orders: 'الطلبات', productMargin: 'هامش ربح المنتجات',
+      forecast: 'توقع مبني على آخر 14 يوماً', next7: 'النتيجة التقديرية خلال 7 أيام', next30: 'النتيجة التقديرية خلال 30 يوماً',
+      breakeven: 'نقطة التعادل اليومية', need: 'الحد الأدنى المطلوب من المبيعات اليومية', unavailable: 'أكمل وصفات وتكاليف المنتجات لحسابها.',
+      alerts: 'تنبيهات ذكية', inventory: 'المخزون وتنبيهات الجرد', ingredient: 'المادة', stock: 'المخزون', dailyUse: 'الاستهلاك/يوم', days: 'الأيام', state: 'الحالة',
+      rules: 'التكاليف الثابتة والمتكررة', newRule: 'إضافة تكلفة متكررة', name: 'عنوان التكلفة', amount: 'المبلغ (€)', frequency: 'التكرار', category: 'الفئة', paidBy: 'مدفوع بواسطة', start: 'تاريخ البداية', notes: 'ملاحظات', save: 'حفظ التكلفة', delete: 'حذف',
+      daily: 'يومي', weekly: 'أسبوعي', monthly: 'شهري', active: 'نشط', noAlerts: 'لا توجد تنبيهات حرجة.', noRules: 'لم تتم إضافة تكاليف متكررة بعد.', noStock: 'لم تتم إضافة مواد أولية بعد.',
+      cashWarning: 'مهم: التكاليف المتكررة تقديرية؛ لا تسجل الفاتورة نفسها مرة أخرى في المحاسبة.',
+    },
+  }[language];
+
+  const setRange = days => {
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(start.getDate() - (days - 1));
+    const next = { date_from: start.toISOString().slice(0, 10), date_to: end.toISOString().slice(0, 10) };
+    setPeriod(next);
+    onRefresh(next);
+  };
+
+  const submit = async event => {
+    event.preventDefault();
+    await onSaveRecurring(form);
+    setForm(current => ({ ...current, title: '', amount: '', notes: '' }));
+  };
+
+  const pnl = financeData?.profit_loss || {};
+  const forecast = financeData?.forecast || {};
+  const breakEven = financeData?.break_even || {};
+  const inventory = financeData?.inventory || [];
+  const warnings = financeData?.warnings || [];
+
+  return <section className={`smart-finance-page lang-${language}`} dir={language === 'ar' ? 'rtl' : 'ltr'}>
+    <section className="admin-card smart-finance-hero">
+      <div>
+        <span className="admin-kicker">PHASE 1</span>
+        <h2>{tr.title}</h2>
+        <p>{tr.subtitle}</p>
+      </div>
+      <div className="smart-finance-controls">
+        <div className="smart-language-switch">
+          <button className={language === 'es' ? 'active' : ''} onClick={() => setLanguage('es')}>Español</button>
+          <button className={language === 'fa' ? 'active' : ''} onClick={() => setLanguage('fa')}>فارسی</button>
+          <button className={language === 'ar' ? 'active' : ''} onClick={() => setLanguage('ar')}>العربية</button>
+        </div>
+        <div className="smart-range-actions">
+          <button onClick={() => setRange(1)}>{tr.today}</button>
+          <button onClick={() => setRange(7)}>{tr.week}</button>
+          <button onClick={() => setRange(30)}>{tr.month}</button>
+          <label><input type="date" value={period.date_from} onChange={e => setPeriod({...period, date_from:e.target.value})}/></label>
+          <label><input type="date" value={period.date_to} onChange={e => setPeriod({...period, date_to:e.target.value})}/></label>
+          <button className="smart-primary" onClick={() => onRefresh(period)} disabled={loading}>{loading ? '...' : tr.refresh}</button>
+        </div>
+      </div>
+    </section>
+
+    <p className="smart-finance-disclaimer">{tr.cashWarning}</p>
+
+    <section className="smart-finance-kpis">
+      <article><span>{tr.sales}</span><b>{money(pnl.gross_sales)}</b><small>{tr.orders}: {pnl.orders_count || 0}</small></article>
+      <article><span>{tr.actual}</span><b>{money(pnl.actual_logged_expenses)}</b><small>{tr.productMargin}: {Number(pnl.product_margin_percent || 0).toFixed(1)}%</small></article>
+      <article><span>{tr.recurring}</span><b>{money(pnl.recurring_cost_allocation)}</b><small>{financeData?.period?.days || 0} días</small></article>
+      <article className={Number(pnl.estimated_cash_net || 0) < 0 ? 'smart-negative' : 'smart-positive'}><span>{tr.net}</span><b>{money(pnl.estimated_cash_net)}</b><small>{Number(pnl.estimated_cash_net || 0) < 0 ? '⚠ Riesgo de pérdida' : '✓ Resultado positivo'}</small></article>
+    </section>
+
+    <section className="smart-finance-two-column">
+      <article className="admin-card">
+        <h2>{tr.forecast}</h2>
+        <div className="smart-forecast-grid">
+          <div><span>{tr.next7}</span><b className={Number(forecast.next_7_days_net || 0) < 0 ? 'negative' : ''}>{money(forecast.next_7_days_net)}</b></div>
+          <div><span>{tr.next30}</span><b className={Number(forecast.next_30_days_net || 0) < 0 ? 'negative' : ''}>{money(forecast.next_30_days_net)}</b></div>
+        </div>
+        <small className="muted">Media diaria reciente: {money(forecast.average_daily_net_last_14_days)}</small>
+      </article>
+      <article className="admin-card">
+        <h2>{tr.breakeven}</h2>
+        {breakEven.available ? <><span className="smart-big-label">{tr.need}</span><b className="smart-break-even">{money(breakEven.daily_sales_needed)}</b><small className="muted">Margen de recetas: {Number(breakEven.gross_margin_percent || 0).toFixed(1)}% · Coste fijo diario: {money(breakEven.daily_recurring_cost)}</small></> : <p className="muted">{tr.unavailable}</p>}
+      </article>
+    </section>
+
+    <section className="smart-finance-two-column">
+      <article className="admin-card smart-alerts-card">
+        <h2>{tr.alerts}</h2>
+        {warnings.length ? <div className="smart-alert-list">{warnings.map((row, index) => <p key={`${row.code}-${index}`} className={`smart-alert ${row.level || 'info'}`}>{row.level === 'danger' ? '⚠️' : row.level === 'warning' ? '⚠' : 'ℹ'} {row[`message_${language}`] || row.message_es}</p>)}</div> : <p className="muted">{tr.noAlerts}</p>}
+      </article>
+      <article className="admin-card">
+        <h2>{tr.inventory}</h2>
+        {inventory.length ? <div className="smart-stock-list">{inventory.slice(0, 8).map(row => <div key={row.id} className={`smart-stock-row ${row.status}`}><b>{row.name}</b><span>{row.stock_quantity} {row.unit}</span><small>{tr.dailyUse}: {row.average_daily_usage} · {tr.days}: {row.estimated_days_left ?? '—'}</small></div>)}</div> : <p className="muted">{tr.noStock}</p>}
+      </article>
+    </section>
+
+    <section className="smart-finance-two-column">
+      <article className="admin-card">
+        <h2>{tr.newRule}</h2>
+        <form className="smart-recurring-form" onSubmit={submit}>
+          <input required placeholder={tr.name} value={form.title} onChange={e => setForm({...form,title:e.target.value})}/>
+          <input required type="number" min="0.01" step="0.01" placeholder={tr.amount} value={form.amount} onChange={e => setForm({...form,amount:e.target.value})}/>
+          <select value={form.frequency} onChange={e => setForm({...form,frequency:e.target.value})}><option value="daily">{tr.daily}</option><option value="weekly">{tr.weekly}</option><option value="monthly">{tr.monthly}</option></select>
+          <select value={form.category_id} onChange={e => setForm({...form,category_id:e.target.value})}><option value="">{tr.category}</option>{(expenseCategories || []).filter(x => x.is_active).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          <select value={form.paid_by} onChange={e => setForm({...form,paid_by:e.target.value})}><option value="bbva">BBVA</option><option value="saeid">Saeid</option><option value="ahmed">Ahmed</option></select>
+          <label>{tr.start}<input type="date" value={form.start_date} onChange={e => setForm({...form,start_date:e.target.value})}/></label>
+          <textarea placeholder={tr.notes} value={form.notes} onChange={e => setForm({...form,notes:e.target.value})}/>
+          <button className="pay" type="submit">{tr.save}</button>
+        </form>
+      </article>
+      <article className="admin-card">
+        <h2>{tr.rules}</h2>
+        <div className="smart-rule-list">
+          {recurringCosts.length ? recurringCosts.map(row => <div className="smart-rule-row" key={row.id}><div><b>{row.title}</b><small>{money(row.amount)} · {row.frequency} · {row.category_name || '—'}</small></div><button type="button" onClick={() => onDeleteRecurring(row)}>{tr.delete}</button></div>) : <p className="muted">{tr.noRules}</p>}
+        </div>
+      </article>
+    </section>
+  </section>;
+}
+
 function DashboardApp() {
   usePageChrome();
   if (!getAdminToken()) return <AdminLoginApp />;
@@ -3391,12 +3559,56 @@ function DashboardApp() {
   const [profitabilityLoading, setProfitabilityLoading] = useState(false);
   const [reportData, setReportData] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [smartFinanceData, setSmartFinanceData] = useState(null);
+  const [smartRecurringCosts, setSmartRecurringCosts] = useState([]);
+  const [smartFinanceLoading, setSmartFinanceLoading] = useState(false);
   const [reportFilters, setReportFilters] = useState(() => {
     const today = new Date();
     const before = new Date(today);
     before.setDate(before.getDate() - 29);
     return { date_from: before.toISOString().slice(0, 10), date_to: today.toISOString().slice(0, 10), delivery_type: '', payment_method: '', rider_id: '', status: '' };
   });
+
+
+  async function loadSmartFinance(period = {}) {
+    try {
+      setSmartFinanceLoading(true);
+      const params = new URLSearchParams();
+      if (period.date_from) params.set('date_from', period.date_from);
+      if (period.date_to) params.set('date_to', period.date_to);
+      const [overviewRes, recurringRes] = await Promise.all([
+        axios.get(`${API_BASE}/admin/smart-finance/overview/?${params.toString()}`),
+        axios.get(`${API_BASE}/admin/smart-finance/recurring-costs/`),
+      ]);
+      setSmartFinanceData(overviewRes.data || null);
+      setSmartRecurringCosts(recurringRes.data || []);
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo cargar Finanzas e Inventario Inteligente.');
+    } finally {
+      setSmartFinanceLoading(false);
+    }
+  }
+
+  async function saveSmartRecurringCost(payload) {
+    try {
+      await axios.post(`${API_BASE}/admin/smart-finance/recurring-costs/`, payload);
+      setMessage('Coste recurrente guardado correctamente.');
+      await loadSmartFinance();
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo guardar el coste recurrente.');
+    }
+  }
+
+  async function deleteSmartRecurringCost(row) {
+    if (!window.confirm(`¿Eliminar el coste recurrente "${row.title}"?`)) return;
+    try {
+      await axios.delete(`${API_BASE}/admin/smart-finance/recurring-costs/${row.id}/`);
+      setMessage('Coste recurrente eliminado.');
+      await loadSmartFinance();
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'No se pudo eliminar el coste recurrente.');
+    }
+  }
 
   function reportQueryString() {
     const params = new URLSearchParams();
@@ -4058,6 +4270,7 @@ function DashboardApp() {
     ['reports','Reportes dinámicos'],
     ['accounting','Contabilidad'],
     ['profitability','Rentabilidad'],
+    ['smart-finance','Finanzas inteligentes'],
     ['system','Sistema / Backup'],
     ['config','Configuración'],
     ['menu','Categorías / Menú'],
@@ -4084,7 +4297,7 @@ function DashboardApp() {
       </section>
 
       <nav className="admin-tabs">
-        {tabs.map(([key,label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => { setTab(key); if (key === 'reports') window.setTimeout(loadDynamicReports, 0); }}>{label}</button>)}
+        {tabs.map(([key,label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => { setTab(key); if (key === 'reports') window.setTimeout(loadDynamicReports, 0); if (key === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }}>{label}</button>)}
       </nav>
 
       {data && <section className="admin-metrics-grid">
@@ -4507,6 +4720,18 @@ function DashboardApp() {
         </section>
       </section>}
 
+
+
+
+      {tab === 'smart-finance' && <SmartFinanceInventoryPanel
+        financeData={smartFinanceData}
+        recurringCosts={smartRecurringCosts}
+        expenseCategories={expenseCategories}
+        loading={smartFinanceLoading}
+        onRefresh={loadSmartFinance}
+        onSaveRecurring={saveSmartRecurringCost}
+        onDeleteRecurring={deleteSmartRecurringCost}
+      />}
 
 
       {tab === 'system' && <section className="system-backup-page">

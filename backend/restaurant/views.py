@@ -3161,3 +3161,409 @@ def finance_dashboard_v2(request):
             for x in latest_expenses
         ],
     })
+
+# ============================================================
+# Smart Finance & Inventory - Phase 1
+# Uses existing orders, accounting, recipes and ingredient stock.
+# ============================================================
+
+def _smart_finance_decimal(value):
+    return Decimal(str(value or '0.00'))
+
+
+def _smart_finance_date_range(request):
+    from datetime import timedelta
+    from django.utils.dateparse import parse_date
+
+    today = timezone.localdate()
+    date_from = parse_date(str(request.query_params.get('date_from') or '')) or today
+    date_to = parse_date(str(request.query_params.get('date_to') or '')) or today
+    if date_from > date_to:
+        raise ValueError('La fecha inicial no puede ser posterior a la fecha final.')
+    if (date_to - date_from).days > 366:
+        raise ValueError('El periodo máximo permitido es de 366 días.')
+    return date_from, date_to
+
+
+def _smart_finance_recurring_amount(rule, date_from, date_to):
+    import calendar
+    from datetime import timedelta
+
+    start = max(date_from, rule.start_date)
+    end = min(date_to, rule.end_date) if rule.end_date else date_to
+    if start > end:
+        return Decimal('0.00')
+
+    days = (end - start).days + 1
+    amount = _smart_finance_decimal(rule.amount)
+
+    if rule.frequency == rule.FREQUENCY_DAILY:
+        return amount * Decimal(days)
+    if rule.frequency == rule.FREQUENCY_WEEKLY:
+        return (amount / Decimal('7')) * Decimal(days)
+
+    total = Decimal('0.00')
+    cursor = start
+    while cursor <= end:
+        days_in_month = calendar.monthrange(cursor.year, cursor.month)[1]
+        month_last_day = cursor.replace(day=days_in_month)
+        segment_end = min(month_last_day, end)
+        segment_days = (segment_end - cursor).days + 1
+        total += (amount / Decimal(days_in_month)) * Decimal(segment_days)
+        cursor = segment_end + timedelta(days=1)
+    return total
+
+
+def _smart_finance_rule_payload(rule):
+    return {
+        'id': rule.id,
+        'title': rule.title,
+        'amount': float(rule.amount or 0),
+        'frequency': rule.frequency,
+        'category_id': rule.category_id,
+        'category_name': rule.category.name if rule.category_id else '',
+        'paid_by': rule.paid_by,
+        'start_date': rule.start_date.isoformat() if rule.start_date else '',
+        'end_date': rule.end_date.isoformat() if rule.end_date else '',
+        'is_active': bool(rule.is_active),
+        'notes': rule.notes or '',
+    }
+
+
+def _smart_finance_recipe_costs(date_from, date_to):
+    from .models import ProductCostProfile, OrderItem
+
+    sales = (
+        OrderItem.objects.filter(
+            order__created_at__date__gte=date_from,
+            order__created_at__date__lte=date_to,
+        )
+        .exclude(order__status=Order.STATUS_CANCELLED)
+        .values('menu_item_id')
+        .annotate(units=Sum('quantity'), revenue=Sum('total'))
+    )
+    sales_by_item = {
+        row['menu_item_id']: {
+            'units': _smart_finance_decimal(row['units']),
+            'revenue': _smart_finance_decimal(row['revenue']),
+        }
+        for row in sales if row.get('menu_item_id')
+    }
+
+    estimated_cost = Decimal('0.00')
+    configured_revenue = Decimal('0.00')
+    configured_units = Decimal('0.00')
+    profiles = ProductCostProfile.objects.select_related('menu_item').prefetch_related('components__ingredient')
+    for profile in profiles:
+        sold = sales_by_item.pop(profile.menu_item_id, None)
+        if not sold or not profile.components.exists():
+            continue
+        ingredient_cost = sum(
+            (_smart_finance_decimal(component.quantity) * _smart_finance_decimal(component.ingredient.unit_cost))
+            for component in profile.components.all()
+        )
+        unit_cost = ingredient_cost + _smart_finance_decimal(profile.packaging_cost) + _smart_finance_decimal(profile.fixed_cost)
+        estimated_cost += unit_cost * sold['units']
+        configured_revenue += sold['revenue']
+        configured_units += sold['units']
+
+    unconfigured_revenue = sum((row['revenue'] for row in sales_by_item.values()), Decimal('0.00'))
+    return {
+        'estimated_cost': estimated_cost,
+        'configured_revenue': configured_revenue,
+        'unconfigured_revenue': unconfigured_revenue,
+        'configured_units': configured_units,
+    }
+
+
+def _smart_finance_inventory_payload(today):
+    from datetime import timedelta
+    from .models import Ingredient, RecipeIngredient, OrderItem
+
+    history_start = today - timedelta(days=13)
+    sales = (
+        OrderItem.objects.filter(
+            order__created_at__date__gte=history_start,
+            order__created_at__date__lte=today,
+        )
+        .exclude(order__status=Order.STATUS_CANCELLED)
+        .values('menu_item_id')
+        .annotate(units=Sum('quantity'))
+    )
+    units_by_item = {row['menu_item_id']: _smart_finance_decimal(row['units']) for row in sales if row.get('menu_item_id')}
+
+    daily_usage = {}
+    for row in RecipeIngredient.objects.select_related('profile__menu_item', 'ingredient').all():
+        sold = units_by_item.get(row.profile.menu_item_id, Decimal('0.00'))
+        if sold:
+            daily_usage[row.ingredient_id] = daily_usage.get(row.ingredient_id, Decimal('0.00')) + (
+                _smart_finance_decimal(row.quantity) * sold / Decimal('14')
+            )
+
+    result = []
+    for ingredient in Ingredient.objects.filter(is_active=True).order_by('name'):
+        stock = _smart_finance_decimal(ingredient.stock_quantity)
+        reorder = _smart_finance_decimal(ingredient.reorder_level)
+        average = daily_usage.get(ingredient.id, Decimal('0.00'))
+        days_left = (stock / average) if average > 0 else None
+        low = stock <= reorder if reorder > 0 else False
+        urgent = days_left is not None and days_left <= Decimal('1.5')
+        warning = low or urgent
+        result.append({
+            'id': ingredient.id,
+            'name': ingredient.name,
+            'unit': ingredient.unit,
+            'stock_quantity': float(stock),
+            'reorder_level': float(reorder),
+            'average_daily_usage': float(average.quantize(Decimal('0.001'))),
+            'estimated_days_left': float(days_left.quantize(Decimal('0.1'))) if days_left is not None else None,
+            'warning': warning,
+            'status': 'urgent' if urgent else ('low' if low else 'ok'),
+        })
+    return result
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_smart_finance_overview(request):
+    from datetime import timedelta
+    from .models import RestaurantFinancialEntry, RecurringExpenseRule
+
+    try:
+        date_from, date_to = _smart_finance_date_range(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    days = (date_to - date_from).days + 1
+    approved_statuses = [
+        RestaurantFinancialEntry.STATUS_APPROVED,
+        RestaurantFinancialEntry.STATUS_REIMBURSED,
+    ]
+    orders = Order.objects.filter(
+        created_at__date__gte=date_from,
+        created_at__date__lte=date_to,
+    ).exclude(status=Order.STATUS_CANCELLED)
+    entries = RestaurantFinancialEntry.objects.filter(
+        entry_date__gte=date_from,
+        entry_date__lte=date_to,
+        status__in=approved_statuses,
+        entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+    )
+
+    revenue = orders.aggregate(value=Sum('total')).get('value') or Decimal('0.00')
+    discounts = orders.aggregate(value=Sum('discount')).get('value') or Decimal('0.00')
+    delivery_fees = orders.aggregate(value=Sum('delivery_fee')).get('value') or Decimal('0.00')
+    actual_expenses = entries.aggregate(value=Sum('amount')).get('value') or Decimal('0.00')
+
+    active_rules = RecurringExpenseRule.objects.filter(
+        is_active=True,
+        start_date__lte=date_to,
+    ).filter(Q(end_date__isnull=True) | Q(end_date__gte=date_from)).select_related('category')
+    recurring_rows = []
+    recurring_allocated = Decimal('0.00')
+    for rule in active_rules:
+        allocation = _smart_finance_recurring_amount(rule, date_from, date_to)
+        recurring_allocated += allocation
+        recurring_rows.append({
+            **_smart_finance_rule_payload(rule),
+            'allocated_amount': float(allocation.quantize(Decimal('0.01'))),
+        })
+
+    recipe = _smart_finance_recipe_costs(date_from, date_to)
+    product_cost = recipe['estimated_cost']
+    product_margin = revenue - product_cost
+    cash_net_before_recurring = revenue - actual_expenses
+    cash_net_after_recurring = cash_net_before_recurring - recurring_allocated
+
+    # Recurring expenses are a forecast allocation. They may duplicate cash entries
+    # if the manager also registers the same bill as a normal expense.
+    warnings = []
+    if recurring_allocated > 0:
+        warnings.append({
+            'level': 'info',
+            'code': 'recurring_estimate',
+            'message_es': 'Los costes recurrentes se asignan como estimación. No registres el mismo recibo dos veces en Contabilidad.',
+            'message_fa': 'هزینه‌های تکراری به‌صورت تخمینی تخصیص می‌یابند؛ همان قبض را دوباره در حسابداری ثبت نکنید.',
+            'message_ar': 'يتم توزيع التكاليف المتكررة كتقدير؛ لا تسجل نفس الفاتورة مرتين في المحاسبة.',
+        })
+    if recipe['unconfigured_revenue'] > 0:
+        warnings.append({
+            'level': 'warning',
+            'code': 'missing_recipes',
+            'message_es': 'Hay ventas sin receta de coste configurada; el margen real por producto es incompleto.',
+            'message_fa': 'برای بعضی فروش‌ها دستور و هزینه مواد اولیه ثبت نشده است؛ سود واقعی غذاها کامل نیست.',
+            'message_ar': 'هناك مبيعات لمنتجات بدون وصفة تكلفة؛ هامش الربح الحقيقي للمنتجات غير مكتمل.',
+        })
+
+    inventory = _smart_finance_inventory_payload(date_to)
+    for row in inventory:
+        if row['warning']:
+            warnings.append({
+                'level': 'danger' if row['status'] == 'urgent' else 'warning',
+                'code': 'inventory_low',
+                'ingredient_id': row['id'],
+                'message_es': f"{row['name']} necesita revisión de stock.",
+                'message_fa': f"موجودی {row['name']} نیاز به بررسی دارد.",
+                'message_ar': f"مخزون {row['name']} يحتاج إلى مراجعة.",
+            })
+
+    # Forecast: average actual cash result of the latest 14 available days.
+    history_start = date_to - timedelta(days=13)
+    history_orders = Order.objects.filter(
+        created_at__date__gte=history_start,
+        created_at__date__lte=date_to,
+    ).exclude(status=Order.STATUS_CANCELLED)
+    history_revenue = history_orders.aggregate(value=Sum('total')).get('value') or Decimal('0.00')
+    history_expenses = RestaurantFinancialEntry.objects.filter(
+        entry_date__gte=history_start,
+        entry_date__lte=date_to,
+        status__in=approved_statuses,
+        entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+    ).aggregate(value=Sum('amount')).get('value') or Decimal('0.00')
+    history_recurring = sum(
+        (_smart_finance_recurring_amount(rule, history_start, date_to) for rule in active_rules),
+        Decimal('0.00'),
+    )
+    avg_daily_net = (history_revenue - history_expenses - history_recurring) / Decimal('14')
+
+    gross_margin_percent = (
+        (product_margin / revenue * Decimal('100.00'))
+        if revenue > 0 and recipe['configured_revenue'] > 0 else Decimal('0.00')
+    )
+    recurring_daily = recurring_allocated / Decimal(days) if days else Decimal('0.00')
+    break_even_sales = (
+        recurring_daily / (gross_margin_percent / Decimal('100.00'))
+        if gross_margin_percent > 0 else Decimal('0.00')
+    )
+
+    expense_categories = list(
+        entries.values('category__name').annotate(total=Sum('amount')).order_by('-total')
+    )
+    return Response({
+        'period': {'date_from': date_from.isoformat(), 'date_to': date_to.isoformat(), 'days': days},
+        'profit_loss': {
+            'gross_sales': float(revenue),
+            'discounts': float(discounts),
+            'delivery_fees_collected': float(delivery_fees),
+            'actual_logged_expenses': float(actual_expenses),
+            'recurring_cost_allocation': float(recurring_allocated.quantize(Decimal('0.01'))),
+            'cash_net_before_recurring': float(cash_net_before_recurring),
+            'estimated_cash_net': float(cash_net_after_recurring),
+            'estimated_recipe_cost': float(product_cost.quantize(Decimal('0.01'))),
+            'estimated_product_margin': float(product_margin.quantize(Decimal('0.01'))),
+            'product_margin_percent': float(gross_margin_percent.quantize(Decimal('0.01'))),
+            'orders_count': orders.count(),
+        },
+        'forecast': {
+            'average_daily_net_last_14_days': float(avg_daily_net.quantize(Decimal('0.01'))),
+            'next_7_days_net': float((avg_daily_net * Decimal('7')).quantize(Decimal('0.01'))),
+            'next_30_days_net': float((avg_daily_net * Decimal('30')).quantize(Decimal('0.01'))),
+            'trend': 'profit' if avg_daily_net >= 0 else 'loss',
+        },
+        'break_even': {
+            'daily_recurring_cost': float(recurring_daily.quantize(Decimal('0.01'))),
+            'gross_margin_percent': float(gross_margin_percent.quantize(Decimal('0.01'))),
+            'daily_sales_needed': float(break_even_sales.quantize(Decimal('0.01'))),
+            'available': bool(gross_margin_percent > 0),
+        },
+        'recurring_costs': recurring_rows,
+        'inventory': inventory,
+        'expense_categories': [
+            {'name': row['category__name'] or 'Sin categoría', 'amount': float(row['total'] or 0)}
+            for row in expense_categories
+        ],
+        'warnings': warnings,
+    })
+
+
+@api_view(['GET', 'POST'])
+@admin_token_required
+def admin_smart_finance_recurring_costs(request):
+    from .models import ExpenseCategory, RecurringExpenseRule
+    from django.utils.dateparse import parse_date
+
+    if request.method == 'GET':
+        rows = RecurringExpenseRule.objects.select_related('category').all()
+        return Response([_smart_finance_rule_payload(row) for row in rows])
+
+    data = request.data or {}
+    title = str(data.get('title') or '').strip()
+    if not title:
+        return Response({'detail': 'El título es obligatorio.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        amount = Decimal(str(data.get('amount') or '0'))
+        if amount <= 0:
+            raise ValueError('El importe debe ser mayor que cero.')
+        category = None
+        if data.get('category_id'):
+            category = ExpenseCategory.objects.get(id=int(data['category_id']))
+        start_date = parse_date(str(data.get('start_date') or '')) or timezone.localdate()
+        end_date = parse_date(str(data.get('end_date') or '')) if data.get('end_date') else None
+        if end_date and end_date < start_date:
+            raise ValueError('La fecha final no puede ser anterior a la fecha inicial.')
+        row = RecurringExpenseRule.objects.create(
+            title=title,
+            amount=amount,
+            frequency=str(data.get('frequency') or RecurringExpenseRule.FREQUENCY_MONTHLY),
+            category=category,
+            paid_by=str(data.get('paid_by') or RestaurantFinancialEntry.PARTY_BBVA),
+            start_date=start_date,
+            end_date=end_date,
+            is_active=bool(data.get('is_active', True)),
+            notes=str(data.get('notes') or '').strip(),
+            created_by_username=request.admin_user.get_username(),
+            updated_by_username=request.admin_user.get_username(),
+        )
+    except (ValueError, TypeError, ExpenseCategory.DoesNotExist) as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(_smart_finance_rule_payload(row), status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH', 'DELETE'])
+@admin_token_required
+def admin_smart_finance_recurring_cost_detail(request, rule_id):
+    from .models import ExpenseCategory, RecurringExpenseRule
+    from django.utils.dateparse import parse_date
+
+    try:
+        row = RecurringExpenseRule.objects.select_related('category').get(id=rule_id)
+    except RecurringExpenseRule.DoesNotExist:
+        return Response({'detail': 'Coste recurrente no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        row.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    data = request.data or {}
+    try:
+        if 'title' in data:
+            row.title = str(data['title'] or '').strip()
+        if not row.title:
+            raise ValueError('El título es obligatorio.')
+        if 'amount' in data:
+            row.amount = Decimal(str(data['amount'] or '0'))
+            if row.amount <= 0:
+                raise ValueError('El importe debe ser mayor que cero.')
+        if 'frequency' in data:
+            row.frequency = str(data['frequency'])
+        if 'category_id' in data:
+            row.category = ExpenseCategory.objects.get(id=int(data['category_id'])) if data['category_id'] else None
+        if 'paid_by' in data:
+            row.paid_by = str(data['paid_by'])
+        if 'start_date' in data:
+            row.start_date = parse_date(str(data['start_date'])) or row.start_date
+        if 'end_date' in data:
+            row.end_date = parse_date(str(data['end_date'])) if data['end_date'] else None
+        if row.end_date and row.end_date < row.start_date:
+            raise ValueError('La fecha final no puede ser anterior a la fecha inicial.')
+        if 'is_active' in data:
+            row.is_active = bool(data['is_active'])
+        if 'notes' in data:
+            row.notes = str(data['notes'] or '').strip()
+        row.updated_by_username = request.admin_user.get_username()
+        row.full_clean()
+        row.save()
+    except (ValueError, TypeError, ExpenseCategory.DoesNotExist) as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(_smart_finance_rule_payload(row))
+

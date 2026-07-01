@@ -1425,3 +1425,52 @@ class RecipeIngredient(models.Model):
 
     def __str__(self):
         return f'{self.profile.menu_item.name_es} - {self.ingredient.name}'
+
+# v21 Smart Finance & Inventory Phase 1
+class RecurringExpenseRule(models.Model):
+    FREQUENCY_DAILY = 'daily'
+    FREQUENCY_WEEKLY = 'weekly'
+    FREQUENCY_MONTHLY = 'monthly'
+    FREQUENCY_CHOICES = [
+        (FREQUENCY_DAILY, 'Diario'),
+        (FREQUENCY_WEEKLY, 'Semanal'),
+        (FREQUENCY_MONTHLY, 'Mensual'),
+    ]
+
+    title = models.CharField(max_length=180)
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    frequency = models.CharField(max_length=12, choices=FREQUENCY_CHOICES, default=FREQUENCY_MONTHLY)
+    category = models.ForeignKey(
+        ExpenseCategory,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='recurring_rules',
+    )
+    paid_by = models.CharField(
+        max_length=20,
+        choices=RestaurantFinancialEntry.PARTY_CHOICES,
+        default=RestaurantFinancialEntry.PARTY_BBVA,
+    )
+    start_date = models.DateField(default=timezone.localdate)
+    end_date = models.DateField(blank=True, null=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    notes = models.TextField(blank=True, default='')
+    created_by_username = models.CharField(max_length=150, blank=True, default='')
+    updated_by_username = models.CharField(max_length=150, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['title', 'id']
+        indexes = [
+            models.Index(fields=['is_active', 'start_date']),
+        ]
+
+    def __str__(self):
+        return f'{self.title} ({self.frequency})'
+

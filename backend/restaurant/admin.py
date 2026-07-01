@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup, Ingredient, ProductCostProfile, RecipeIngredient
+from .models import Category, MenuItem, MenuOptionGroup, MenuOption, Customer, CustomerAddress, PhoneVerificationCode, Order, OrderItem, Payment, Rider, RestaurantSettings, Coupon, SmsGatewayMessage, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup, Ingredient, ProductCostProfile, RecipeIngredient, RecurringExpenseRule
 
 class MenuOptionInline(admin.TabularInline):
     model = MenuOption
@@ -242,3 +242,10 @@ class RecipeIngredientAdmin(admin.ModelAdmin):
     list_display = ('profile', 'ingredient', 'quantity', 'line_cost')
     list_filter = ('ingredient__unit',)
     search_fields = ('profile__menu_item__name_es', 'ingredient__name')
+
+@admin.register(RecurringExpenseRule)
+class RecurringExpenseRuleAdmin(admin.ModelAdmin):
+    list_display = ('title', 'amount', 'frequency', 'category', 'paid_by', 'start_date', 'end_date', 'is_active')
+    list_filter = ('frequency', 'paid_by', 'is_active', 'category')
+    list_editable = ('is_active',)
+    search_fields = ('title', 'notes', 'category__name')
