@@ -1099,6 +1099,8 @@ class RestaurantFinancialEntry(models.Model):
 
     TYPE_EXPENSE = 'expense'
 
+    TYPE_INCOME = 'income'
+
     TYPE_CONTRIBUTION = 'contribution'
 
     TYPE_SETTLEMENT = 'settlement'
@@ -1106,6 +1108,8 @@ class RestaurantFinancialEntry(models.Model):
     TYPE_CHOICES = [
 
         (TYPE_EXPENSE, 'Gasto'),
+
+        (TYPE_INCOME, 'Ingreso manual'),
 
         (TYPE_CONTRIBUTION, 'AportaciÃ³n a BBVA'),
 

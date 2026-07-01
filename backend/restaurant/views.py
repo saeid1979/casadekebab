@@ -1638,6 +1638,24 @@ def _money_sum(queryset, field='amount'):
     return queryset.aggregate(value=Sum(field)).get('value') or Decimal('0.00')
 
 
+STANDARD_FINANCE_CATEGORIES = [
+    'Alquiler', 'Luz', 'Agua', 'Gas', 'Internet', 'Nóminas y personal',
+    'Publicidad', 'Reparaciones', 'Embalaje', 'Transporte',
+    'Comisión Glovo', 'Comisión Uber Eats', 'Comisión Just Eat',
+    'Gestor / contabilidad', 'Licencias e impuestos', 'Comisiones bancarias',
+    'Otros gastos', 'Ventas presenciales', 'Pedidos telefónicos',
+    'Ingresos Glovo', 'Ingresos Uber Eats', 'Ingresos Just Eat', 'Otros ingresos',
+]
+
+
+def _ensure_standard_finance_categories():
+    for index, name in enumerate(STANDARD_FINANCE_CATEGORIES, start=1):
+        ExpenseCategory.objects.get_or_create(
+            name=name,
+            defaults={'sort_order': index * 10, 'is_active': True},
+        )
+
+
 def _accounting_summary_payload():
     settings_obj = AccountingSettings.current()
     approved = RestaurantFinancialEntry.objects.filter(
@@ -1647,12 +1665,27 @@ def _accounting_summary_payload():
         ]
     )
     expenses = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+    incomes = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_INCOME)
     contributions = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_CONTRIBUTION)
     settlements = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_SETTLEMENT)
 
     saeid_expenses = _money_sum(expenses.filter(paid_by=RestaurantFinancialEntry.PARTY_SAEID))
     ahmed_expenses = _money_sum(expenses.filter(paid_by=RestaurantFinancialEntry.PARTY_AHMED))
     bbva_expenses = _money_sum(expenses.filter(paid_by=RestaurantFinancialEntry.PARTY_BBVA))
+    cash_incomes = _money_sum(incomes.filter(payment_method=RestaurantFinancialEntry.PAYMENT_CASH))
+    card_incomes = _money_sum(
+        incomes.filter(payment_method__in=[
+            RestaurantFinancialEntry.PAYMENT_BBVA,
+            RestaurantFinancialEntry.PAYMENT_TRANSFER,
+            RestaurantFinancialEntry.PAYMENT_PERSONAL_CARD,
+        ])
+    )
+    bbva_incomes = _money_sum(
+        incomes.filter(payment_method__in=[
+            RestaurantFinancialEntry.PAYMENT_BBVA,
+            RestaurantFinancialEntry.PAYMENT_TRANSFER,
+        ])
+    )
 
     saeid_contributions = _money_sum(
         contributions.filter(contribution_from=RestaurantFinancialEntry.PARTY_SAEID)
@@ -1675,14 +1708,9 @@ def _accounting_summary_payload():
     )
 
     personal_total = saeid_expenses + ahmed_expenses
-    saeid_target = (
-        personal_total * settings_obj.saeid_share_percent / Decimal('100.00')
-    )
-    ahmed_target = (
-        personal_total * settings_obj.ahmed_share_percent / Decimal('100.00')
-    )
+    saeid_target = personal_total * settings_obj.saeid_share_percent / Decimal('100.00')
+    ahmed_target = personal_total * settings_obj.ahmed_share_percent / Decimal('100.00')
 
-    # Positive means Saeid should receive money; negative means Ahmed should receive.
     raw_saeid_credit = saeid_expenses - saeid_target
     settlement_net_to_saeid = settlements_ahmed_to_saeid - settlements_saeid_to_ahmed
     saeid_credit_after_settlement = raw_saeid_credit - settlement_net_to_saeid
@@ -1702,15 +1730,18 @@ def _accounting_summary_payload():
     else:
         settlement = {'debtor': '', 'creditor': '', 'amount': '0.00'}
 
+    # Only income actually entering BBVA/transfer affects this calculated bank balance.
     bbva_balance = (
         settings_obj.bbva_initial_balance
         + saeid_contributions
         + ahmed_contributions
+        + bbva_incomes
         - bbva_expenses
     )
 
     month_start = timezone.localdate().replace(day=1)
     month_expenses = _money_sum(expenses.filter(entry_date__gte=month_start))
+    month_incomes = _money_sum(incomes.filter(entry_date__gte=month_start))
 
     by_category = list(
         expenses.values('category__name')
@@ -1725,9 +1756,15 @@ def _accounting_summary_payload():
         'settings': AccountingSettingsSerializer(settings_obj).data,
         'total_expenses': str(_money_sum(expenses)),
         'month_expenses': str(month_expenses),
+        'total_manual_income': str(_money_sum(incomes)),
+        'month_manual_income': str(month_incomes),
+        'cash_manual_income': str(cash_incomes),
+        'card_manual_income': str(card_incomes),
+        'manual_operating_result': str((month_incomes - month_expenses).quantize(Decimal('0.01'))),
         'saeid_expenses': str(saeid_expenses),
         'ahmed_expenses': str(ahmed_expenses),
         'bbva_expenses': str(bbva_expenses),
+        'bbva_incomes': str(bbva_incomes),
         'saeid_contributions': str(saeid_contributions),
         'ahmed_contributions': str(ahmed_contributions),
         'bbva_balance': str(bbva_balance),
@@ -1737,7 +1774,6 @@ def _accounting_summary_payload():
         'settlement': settlement,
         'by_category': by_category,
     }
-
 
 @api_view(['GET'])
 @admin_token_required
@@ -1766,6 +1802,7 @@ def admin_accounting_settings(request):
 @admin_token_required
 def admin_expense_categories(request):
     if request.method == 'GET':
+        _ensure_standard_finance_categories()
         qs = ExpenseCategory.objects.all().order_by('sort_order', 'name')
         return Response(ExpenseCategorySerializer(qs, many=True).data)
 

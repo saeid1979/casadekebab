@@ -5123,11 +5123,13 @@ function DashboardApp() {
 
       {tab === 'accounting' && <section className="partner-accounting-page">
         <section className="accounting-summary-grid">
+          <article className="income-card"><span>Ingresos manuales este mes</span><b>{money(accountingSummary?.month_manual_income)}</b><small>Solo ventas fuera de la web/app</small></article>
           <article><span>Gastos este mes</span><b>{money(accountingSummary?.month_expenses)}</b><small>Total histórico: {money(accountingSummary?.total_expenses)}</small></article>
-          <article><span>Pagado por Saeid</span><b>{money(accountingSummary?.saeid_expenses)}</b><small>Aportado a BBVA: {money(accountingSummary?.saeid_contributions)}</small></article>
-          <article><span>Pagado por Ahmed</span><b>{money(accountingSummary?.ahmed_expenses)}</b><small>Aportado a BBVA: {money(accountingSummary?.ahmed_contributions)}</small></article>
+          <article className="manual-result-card"><span>Resultado manual del mes</span><b>{money(accountingSummary?.manual_operating_result)}</b><small>Ingresos manuales − gastos registrados</small></article>
+          <article><span>Ingresos en efectivo</span><b>{money(accountingSummary?.cash_manual_income)}</b><small>Ventas presenciales / teléfono</small></article>
+          <article><span>Ingresos tarjeta / banco</span><b>{money(accountingSummary?.card_manual_income)}</b><small>Tarjeta, BBVA o transferencia</small></article>
           <article><span>Pagado desde BBVA</span><b>{money(accountingSummary?.bbva_expenses)}</b><small>Gastos comunes</small></article>
-          <article className="bbva-balance-card"><span>Saldo calculado BBVA</span><b>{money(accountingSummary?.bbva_balance)}</b><small>Saldo inicial + aportaciones - gastos BBVA</small></article>
+          <article className="bbva-balance-card"><span>Saldo calculado BBVA</span><b>{money(accountingSummary?.bbva_balance)}</b><small>Saldo inicial + aportaciones + ingresos BBVA − gastos BBVA</small></article>
           <article className="settlement-card"><span>Liquidación 50/50</span><b>{Number(accountingSummary?.settlement?.amount || 0) > 0 ? `${accountingSummary.settlement.debtor} debe ${money(accountingSummary.settlement.amount)} a ${accountingSummary.settlement.creditor}` : 'Socios equilibrados'}</b><small>Considera gastos personales y liquidaciones registradas</small></article>
         </section>
 
@@ -5162,9 +5164,11 @@ function DashboardApp() {
               <label>Tipo de movimiento *</label>
               <select value={accountingForm.entry_type} onChange={e => setAccountingForm({...accountingForm, entry_type: e.target.value})}>
                 <option value="expense">Gasto del restaurante</option>
+                <option value="income">Ingreso manual (fuera de web/app)</option>
                 <option value="contribution">Aportación al BBVA</option>
                 <option value="settlement">Liquidación entre socios</option>
               </select>
+              {accountingForm.entry_type === 'income' && <p className="accounting-income-note">Registra aquí ventas presenciales, pedidos telefónicos o ingresos de plataformas. No registres de nuevo pedidos creados en la web o en la app.</p>}
 
               <label>Fecha *</label>
               <input type="date" value={accountingForm.entry_date} onChange={e => setAccountingForm({...accountingForm, entry_date: e.target.value})}/>
@@ -5175,14 +5179,14 @@ function DashboardApp() {
               <label>Importe (€) *</label>
               <input type="number" min="0.01" step="0.01" placeholder="0.00" value={accountingForm.amount} onChange={e => setAccountingForm({...accountingForm, amount: e.target.value})}/>
 
-              {accountingForm.entry_type === 'expense' && <>
+              {(accountingForm.entry_type === 'expense' || accountingForm.entry_type === 'income') && <>
                 <label>Categoría</label>
                 <select value={accountingForm.category} onChange={e => setAccountingForm({...accountingForm, category: e.target.value})}>
                   <option value="">Sin categoría</option>
                   {expenseCategories.filter(category => category.is_active).map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
                 </select>
 
-                <label>Pagado por *</label>
+                <label>{accountingForm.entry_type === 'income' ? 'Cuenta / responsable que recibe' : 'Pagado por'} *</label>
                 <select value={accountingForm.paid_by} onChange={e => setAccountingForm({...accountingForm, paid_by: e.target.value})}>
                   <option value="saeid">Saeid</option>
                   <option value="ahmed">Ahmed</option>

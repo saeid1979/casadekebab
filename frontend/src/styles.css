@@ -3114,3 +3114,9 @@ html[data-admin-language="ar"] .admin-pro-page select{text-align:right}
 .purchase-tax-summary > div { display:flex; justify-content:space-between; gap:12px; padding:4px 0; }
 .purchase-tax-total { padding-top:10px !important; border-top:1px dashed #d5b6a1; color:#7a1f1a; font-size:16px; }
 
+
+/* v41 Phase 2: manual income and non-inventory expenses */
+.accounting-income-note{margin:0;padding:10px 12px;border:1px solid #b9dcc5;background:#f3fff6;border-radius:10px;color:#285a38;font-size:13px;line-height:1.45}
+.accounting-summary-grid .income-card{border-color:#b9dcc5;background:#f3fff6}
+.accounting-summary-grid .manual-result-card{border-color:#b8d4e7;background:#f3faff}
+
