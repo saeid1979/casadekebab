@@ -4051,6 +4051,51 @@ function isDailyFinanceTab(tab) {
   return false;
 }
 
+// v36 Restore Daily Management internal menu safely
+function DailyManagementSubnav({ activeTab, onGo }) {
+  const language = typeof useGlobalAdminLanguage === 'function' ? useGlobalAdminLanguage() : 'es';
+  const map = {
+    es: [
+      ['daily-management', 'Inicio'],
+      ['inventory-real', 'Compras y stock'],
+      ['accounting', 'Gastos / ingresos'],
+      ['smart-finance', 'Resumen'],
+      ['profitability', 'Recetas y coste'],
+      ['profit-intelligence', 'Beneficio'],
+      ['professional-reports', 'Informes'],
+      ['admin-guide', 'Guía'],
+    ],
+    fa: [
+      ['daily-management', 'شروع'],
+      ['inventory-real', 'خرید و انبار'],
+      ['accounting', 'هزینه / درآمد'],
+      ['smart-finance', 'خلاصه'],
+      ['profitability', 'دستور و هزینه'],
+      ['profit-intelligence', 'سود'],
+      ['professional-reports', 'گزارش'],
+      ['admin-guide', 'راهنما'],
+    ],
+    ar: [
+      ['daily-management', 'البداية'],
+      ['inventory-real', 'الشراء والمخزون'],
+      ['accounting', 'المصروفات / الإيرادات'],
+      ['smart-finance', 'الملخص'],
+      ['profitability', 'الوصفات والتكلفة'],
+      ['profit-intelligence', 'الربح'],
+      ['professional-reports', 'التقارير'],
+      ['admin-guide', 'الدليل'],
+    ],
+  };
+  const items = map[language] || map.es;
+  return <nav className="daily-management-subnav" dir={language === 'es' ? 'ltr' : 'rtl'}>
+    {items.map(([key, label]) => (
+      <button type="button" key={key} className={activeTab === key ? 'active' : ''} onClick={() => onGo(key)}>
+        {label}
+      </button>
+    ))}
+  </nav>;
+}
+
 function DashboardApp() {
   usePageChrome();
   if (!getAdminToken()) return <AdminLoginApp />;
