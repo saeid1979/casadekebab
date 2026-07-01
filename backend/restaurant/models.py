@@ -1492,6 +1492,10 @@ class InventoryMovement(models.Model):
     quantity_delta = models.DecimalField(max_digits=12, decimal_places=3)
     unit_cost_snapshot = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0.0000'))
     total_cost = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    # Purchase tax details. total_cost is the net/base cost; total_amount_with_iva is the paid amount.
+    iva_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'))
+    iva_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    total_amount_with_iva = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     order_item = models.ForeignKey('OrderItem', on_delete=models.SET_NULL, null=True, blank=True, related_name='inventory_movements')
     financial_entry = models.ForeignKey(RestaurantFinancialEntry, on_delete=models.SET_NULL, null=True, blank=True, related_name='inventory_movements')
     supplier_name = models.CharField(max_length=160, blank=True, default='')

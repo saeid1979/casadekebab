@@ -3587,6 +3587,9 @@ def _inventory_movement_payload(row):
         'quantity_delta': float(row.quantity_delta or 0),
         'unit_cost_snapshot': float(row.unit_cost_snapshot or 0),
         'total_cost': float(row.total_cost or 0),
+        'iva_percent': float(getattr(row, 'iva_percent', 0) or 0),
+        'iva_amount': float(getattr(row, 'iva_amount', 0) or 0),
+        'total_amount_with_iva': float(getattr(row, 'total_amount_with_iva', row.total_cost) or 0),
         'supplier_name': row.supplier_name or '',
         'invoice_number': row.invoice_number or '',
         'reference': row.reference or '',
@@ -3596,7 +3599,7 @@ def _inventory_movement_payload(row):
 
 
 def _inventory_apply_movement(*, ingredient_id, movement_type, quantity_delta, unit_cost_snapshot=None,
-                              total_cost=None, order_item=None, financial_entry=None, supplier_name='',
+                              total_cost=None, iva_percent=None, iva_amount=None, total_amount_with_iva=None, order_item=None, financial_entry=None, supplier_name='',
                               invoice_number='', reference='', notes='', occurred_at=None, username=''):
     from .models import Ingredient, InventoryMovement
 
@@ -3626,6 +3629,9 @@ def _inventory_apply_movement(*, ingredient_id, movement_type, quantity_delta, u
             quantity_delta=delta,
             unit_cost_snapshot=unit_cost,
             total_cost=total,
+            iva_percent=_inventory_decimal(iva_percent, '0.00') if iva_percent is not None else Decimal('0.00'),
+            iva_amount=_inventory_decimal(iva_amount, '0.00') if iva_amount is not None else Decimal('0.00'),
+            total_amount_with_iva=_inventory_decimal(total_amount_with_iva, '0.00') if total_amount_with_iva is not None else total,
             order_item=order_item,
             financial_entry=financial_entry,
             supplier_name=str(supplier_name or '').strip(),
@@ -3761,23 +3767,32 @@ def admin_inventory_purchase(request):
     try:
         ingredient = Ingredient.objects.get(id=int(data.get('ingredient_id')))
         quantity = _inventory_decimal(data.get('quantity'))
-        total_amount = _inventory_decimal(data.get('total_amount'))
-        if quantity <= 0 or total_amount < 0:
-            raise ValueError('La cantidad debe ser mayor que cero y el importe no puede ser negativo.')
+        unit_cost = _inventory_decimal(data.get('unit_cost') if data.get('unit_cost') not in (None, '') else ingredient.unit_cost, '0.0000')
+        iva_percent = _inventory_decimal(data.get('iva_percent') if data.get('iva_percent') not in (None, '') else '10.00', '0.00')
+        if quantity <= 0 or unit_cost < 0 or iva_percent < 0 or iva_percent > Decimal('100.00'):
+            raise ValueError('Cantidad, coste unitario o IVA no válidos.')
+
+        subtotal_amount = (quantity * unit_cost).quantize(Decimal('0.01'))
+        iva_amount = (subtotal_amount * iva_percent / Decimal('100.00')).quantize(Decimal('0.01'))
+        total_amount = (subtotal_amount + iva_amount).quantize(Decimal('0.01'))
+
         occurred = parse_datetime(str(data.get('occurred_at') or ''))
         if not occurred:
             purchase_date = parse_date(str(data.get('purchase_date') or '')) or timezone.localdate()
             occurred = timezone.make_aware(timezone.datetime.combine(purchase_date, timezone.datetime.min.time()))
-        unit_cost = (total_amount / quantity) if quantity else Decimal('0.0000')
-        category = None
+
         if data.get('category_id'):
             category = ExpenseCategory.objects.get(id=int(data['category_id']))
         else:
             category, _ = ExpenseCategory.objects.get_or_create(name='Materias primas')
+
+        detail = str(data.get('notes') or '').strip()
+        iva_note = f'Base: {subtotal_amount} € | IVA {iva_percent}%: {iva_amount} € | Total: {total_amount} €'
+        description = f'{detail}\n{iva_note}'.strip()
         entry = RestaurantFinancialEntry.objects.create(
             entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
             title=f'Compra: {ingredient.name}',
-            description=str(data.get('notes') or '').strip(),
+            description=description,
             amount=total_amount,
             entry_date=occurred.date(),
             category=category,
@@ -3788,17 +3803,21 @@ def admin_inventory_purchase(request):
             created_by_username=request.admin_user.get_username(),
             updated_by_username=request.admin_user.get_username(),
         )
+
         movement, _ = _inventory_apply_movement(
             ingredient_id=ingredient.id,
             movement_type=InventoryMovement.TYPE_PURCHASE,
             quantity_delta=quantity,
             unit_cost_snapshot=unit_cost,
-            total_cost=total_amount,
+            total_cost=subtotal_amount,
+            iva_percent=iva_percent,
+            iva_amount=iva_amount,
+            total_amount_with_iva=total_amount,
             financial_entry=entry,
             supplier_name=str(data.get('supplier_name') or ingredient.supplier_name or '').strip(),
             invoice_number=str(data.get('invoice_number') or '').strip(),
             reference='Compra de inventario',
-            notes=str(data.get('notes') or '').strip(),
+            notes=detail,
             occurred_at=occurred,
             username=request.admin_user.get_username(),
         )
@@ -3807,10 +3826,19 @@ def admin_inventory_purchase(request):
             ingredient.save(update_fields=['supplier_name', 'updated_at'])
     except (ValueError, TypeError, Ingredient.DoesNotExist, ExpenseCategory.DoesNotExist) as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
     return Response({
         'success': True,
         'movement': _inventory_movement_payload(movement),
         'financial_entry_id': entry.id,
+        'calculation': {
+            'quantity': float(quantity),
+            'unit_cost_without_iva': float(unit_cost),
+            'subtotal_amount': float(subtotal_amount),
+            'iva_percent': float(iva_percent),
+            'iva_amount': float(iva_amount),
+            'total_amount_with_iva': float(total_amount),
+        },
     }, status=status.HTTP_201_CREATED)
 
 

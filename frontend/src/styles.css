@@ -3098,3 +3098,9 @@ html[data-admin-language="ar"] .admin-pro-page select{text-align:right}
 .daily-management-subnav button.active{background:#8f1d18;color:#fff;border-color:#8f1d18}
 @media(max-width:760px){.daily-management-subnav{overflow-x:auto;flex-wrap:nowrap}.daily-management-subnav button{white-space:nowrap}}
 
+/* v37 Automatic purchase calculation with IVA */
+.purchase-iva-summary{display:grid;gap:7px;padding:12px;border:1px solid #e8d2c4;border-radius:13px;background:#fffaf5}
+.purchase-iva-summary p{margin:0 0 3px;color:#6c5a4f;font-size:13px;line-height:1.5}
+.purchase-iva-summary div{display:flex;justify-content:space-between;gap:12px;padding:5px 0;color:#4e3a30}
+.purchase-iva-summary .purchase-iva-total{border-top:1px dashed #d8b6a3;padding-top:10px;font-size:16px;color:#741c17}
+
