@@ -3757,6 +3757,110 @@ function ManagementAssistantPanel() {
 }
 
 
+
+function AdminOperationsGuide() {
+  const [language, setLanguage] = useState(() => localStorage.getItem('cdkt_admin_ui_language') || 'es');
+  const guides = {
+    es: {
+      eyebrow:'GUÍA OPERATIVA', title:'Cómo registrar datos y calcular beneficio correctamente',
+      subtitle:'Sigue este orden para que compras, gastos, stock, ventas y rentabilidad tengan sentido.',
+      warningTitle:'Regla clave: evita duplicar gastos',
+      warning:'Cuando registras una compra desde Inventario real, el sistema ya crea el gasto financiero correspondiente. No vuelvas a introducir la misma factura en Contabilidad.',
+      quick:'Ruta rápida en Admin',
+      route:'Inventario real → Rentabilidad → Finanzas inteligentes → Contabilidad → Análisis inteligente → Informes profesionales',
+      daily:'Rutina diaria', weekly:'Rutina semanal', monthly:'Cierre mensual',
+      tip:'Consejo: registra datos el mismo día. Cuanto más tarde se registren, menos fiable será el beneficio estimado.',
+      steps:[
+        ['1','Configuración inicial','Revisa datos del restaurante, métodos de pago, socios (Saeid, Ahmed, BBVA) y categorías de gasto. No modifiques las categorías del menú si no es necesario.'],
+        ['2','Ingredientes y stock inicial','En Rentabilidad añade cada ingrediente real: pollo, ternera, pan, patatas, bebidas, salsas, envases y más. Define unidad, coste unitario, stock actual y nivel mínimo.'],
+        ['3','Compras de proveedores','Cada vez que compras mercancía, entra en Inventario real → Compra. Indica ingrediente, cantidad, coste, proveedor y quién pagó. Esto aumenta stock y registra el gasto.'],
+        ['4','Recetas por producto','En Rentabilidad asigna a cada producto sus ingredientes y cantidades exactas. Sin receta, el beneficio por producto no será fiable.'],
+        ['5','Costes fijos y recurrentes','En Finanzas inteligentes registra alquiler, electricidad, agua, gas, internet, sueldos y otros costes periódicos. No uses esta sección para compras de ingredientes.'],
+        ['6','Gastos no relacionados con inventario','En Contabilidad registra reparación, gestor, licencia, publicidad, transporte o comisiones. Adjunta factura y marca quién pagó cuando sea posible.'],
+        ['7','Pedidos y ventas','Comprueba que los pedidos reales estén creados y que los terminados cambien a Entregado. Así las ventas y el consumo automático reflejan actividad real.'],
+        ['8','Mermas y ajustes','En Inventario real registra desperdicios, caducados, errores de preparación o ajustes físicos. No borres una compra para corregir stock: usa Ajuste o Merma.'],
+        ['9','Revisión de beneficio','Consulta Análisis inteligente y Finanzas inteligentes. Revisa margen, recetas incompletas, alertas de stock y costes altos antes de cambiar precios.'],
+        ['10','Informe y cierre','Al final del periodo revisa Contabilidad, Inventario real y Análisis inteligente. Después prepara Informes profesionales o Reportes dinámicos.'],
+      ],
+      routines:[
+        ['☀','Rutina diaria',['Registrar cada compra recibida en Inventario real.','Registrar gasto no relacionado con mercancía en Contabilidad.','Actualizar pedidos reales y marcar Entregado.','Registrar merma o ajuste el mismo día.']],
+        ['📅','Rutina semanal',['Contar ingredientes principales y comparar con el stock del sistema.','Completar recetas de productos pendientes.','Revisar alertas de stock bajo, desperdicio y margen bajo.']],
+        ['📊','Cierre mensual',['Revisar costes recurrentes y pagos de Saeid, Ahmed y BBVA.','Revisar ventas, gastos, merma y beneficio estimado.','Exportar o imprimir el informe tras verificar los datos.']],
+      ],
+    },
+    fa: {
+      eyebrow:'راهنمای اجرایی', title:'نحوه ثبت داده‌ها و محاسبه صحیح سود',
+      subtitle:'این ترتیب را اجرا کنید تا خرید، هزینه، موجودی، فروش و سودآوری با هم هماهنگ باشند.',
+      warningTitle:'قانون مهم: هزینه را دوبار ثبت نکنید',
+      warning:'وقتی خرید مواد را از بخش «انبار واقعی» ثبت می‌کنید، سیستم هزینه مالی همان خرید را نیز ثبت می‌کند. همان فاکتور را دوباره در «حسابداری» وارد نکنید.',
+      quick:'مسیر سریع در پنل مدیریت',
+      route:'انبار واقعی ← سودآوری ← مالی هوشمند ← حسابداری ← تحلیل هوشمند ← گزارش‌های حرفه‌ای',
+      daily:'کارهای روزانه', weekly:'کارهای هفتگی', monthly:'بستن ماهانه',
+      tip:'نکته: داده‌ها را همان روز ثبت کنید. هرچه ثبت دیرتر باشد، سود تخمینی کمتر قابل اعتماد خواهد بود.',
+      steps:[
+        ['1','تنظیمات اولیه','اطلاعات رستوران، روش‌های پرداخت، شریک‌ها (سعید، احمد و BBVA) و دسته‌بندی هزینه‌ها را بررسی کنید. بدون نیاز، دسته‌بندی منوی غذا را تغییر ندهید.'],
+        ['2','مواد اولیه و موجودی آغازین','در «سودآوری» مواد واقعی مانند مرغ، گوشت، نان، سیب‌زمینی، نوشیدنی، سس و بسته‌بندی را اضافه کنید. واحد، هزینه واحد، موجودی فعلی و حداقل موجودی را وارد کنید.'],
+        ['3','خرید از تأمین‌کننده','هر بار کالا خریدید، به «انبار واقعی ← خرید» بروید. ماده، مقدار، هزینه، تأمین‌کننده و پرداخت‌کننده را وارد کنید. این کار موجودی را زیاد و هزینه را ثبت می‌کند.'],
+        ['4','دستور تهیه هر غذا','در «سودآوری»، مواد و مقدار دقیق هر غذا را وارد کنید. بدون دستور، سود هر غذا قابل اعتماد نیست.'],
+        ['5','هزینه‌های ثابت و تکرارشونده','در «مالی هوشمند» اجاره، برق، آب، گاز، اینترنت، حقوق و هزینه‌های دوره‌ای را ثبت کنید. خرید مواد اولیه را در این بخش وارد نکنید.'],
+        ['6','هزینه‌های غیرانبار','در «حسابداری» تعمیرات، gestor، مجوز، تبلیغات، حمل‌ونقل یا کمیسیون را ثبت کنید. در صورت امکان فاکتور را پیوست کنید و پرداخت‌کننده را مشخص کنید.'],
+        ['7','سفارش‌ها و فروش','مطمئن شوید سفارش‌های واقعی ثبت شده‌اند و سفارش تمام‌شده به «تحویل‌شده» تغییر وضعیت می‌دهد. در این حالت فروش و مصرف خودکار دستور غذا واقعی محاسبه می‌شود.'],
+        ['8','ضایعات و اصلاح موجودی','در «انبار واقعی» ضایعات، تاریخ‌گذشته، خطای آماده‌سازی یا اختلاف شمارش را ثبت کنید. برای اصلاح موجودی خرید را حذف نکنید؛ از «اصلاح» یا «ضایعات» استفاده کنید.'],
+        ['9','بررسی سود','بخش «تحلیل هوشمند» و «مالی هوشمند» را بررسی کنید. قبل از تغییر قیمت، حاشیه سود، غذاهای بدون دستور و هشدار موجودی را ببینید.'],
+        ['10','گزارش و بستن دوره','در پایان دوره حسابداری، انبار واقعی و تحلیل هوشمند را مرور کنید؛ سپس گزارش حرفه‌ای یا گزارش پویا را بعد از تأیید داده‌ها آماده کنید.'],
+      ],
+      routines:[
+        ['☀','کارهای روزانه',['هر خرید دریافت‌شده را در «انبار واقعی» ثبت کنید.','هزینه غیرمرتبط با کالا را در «حسابداری» ثبت کنید.','سفارش‌های واقعی را به‌روز کنید و در زمان درست «تحویل‌شده» بزنید.','ضایعات یا اختلاف موجودی را همان روز ثبت کنید.']],
+        ['📅','کارهای هفتگی',['مواد اصلی را فیزیکی بشمارید و با موجودی سیستم مقایسه کنید.','دستور غذاهای ناقص را کامل کنید.','هشدار کمبود موجودی، ضایعات و حاشیه سود پایین را بررسی کنید.']],
+        ['📊','بستن ماهانه',['هزینه‌های تکراری و پرداخت‌های سعید، احمد و BBVA را بررسی کنید.','فروش، هزینه، ضایعات و سود تخمینی را مرور کنید.','پس از بررسی داده‌ها، گزارش را برای شریک‌ها یا gestor خروجی/چاپ کنید.']],
+      ],
+    },
+    ar: {
+      eyebrow:'دليل التشغيل', title:'كيفية تسجيل البيانات وحساب الربح بشكل صحيح',
+      subtitle:'اتبع هذا الترتيب حتى تتوافق المشتريات والمصروفات والمخزون والمبيعات والربحية.',
+      warningTitle:'قاعدة مهمة: لا تسجل المصروف مرتين',
+      warning:'عند تسجيل شراء من قسم «المخزون الفعلي»، ينشئ النظام المصروف المالي لنفس الشراء. لا تدخل الفاتورة نفسها مرة أخرى في «المحاسبة».',
+      quick:'المسار السريع في لوحة الإدارة',
+      route:'المخزون الفعلي ← الربحية ← المالية الذكية ← المحاسبة ← التحليل الذكي ← التقارير المهنية',
+      daily:'المهام اليومية', weekly:'المهام الأسبوعية', monthly:'الإقفال الشهري',
+      tip:'نصيحة: سجّل البيانات في اليوم نفسه. كلما تأخر التسجيل، قلت موثوقية الربح التقديري.',
+      steps:[
+        ['1','الإعداد الأولي','راجع بيانات المطعم وطرق الدفع والشركاء (سعيد وأحمد وBBVA) وفئات المصروفات. لا تغيّر فئات قائمة الطعام دون حاجة.'],
+        ['2','المواد والمخزون الافتتاحي','في «الربحية» أضف المواد الحقيقية مثل الدجاج واللحم والخبز والبطاطا والمشروبات والصلصات والعبوات. حدّد الوحدة وتكلفة الوحدة والمخزون الحالي والحد الأدنى.'],
+        ['3','مشتريات الموردين','عند شراء بضاعة، اذهب إلى «المخزون الفعلي ← شراء». أدخل المادة والكمية والتكلفة والمورد ومن قام بالدفع. هذا يزيد المخزون ويسجل المصروف.'],
+        ['4','وصفات المنتجات','في «الربحية» اربط كل منتج بمواده وكمياتها الدقيقة. من دون وصفة لن تكون ربحية المنتج موثوقة.'],
+        ['5','التكاليف الثابتة والمتكررة','في «المالية الذكية» سجّل الإيجار والكهرباء والماء والغاز والإنترنت والرواتب والتكاليف الدورية. لا تدخل مشتريات المواد هنا.'],
+        ['6','مصروفات خارج المخزون','في «المحاسبة» سجّل الإصلاحات والمحاسب والرخصة والإعلان والنقل أو العمولات. أرفق الفاتورة عند الإمكان وحدد من قام بالدفع.'],
+        ['7','الطلبات والمبيعات','تأكد من تسجيل الطلبات الفعلية وتحويل الطلب المنتهي إلى «تم التسليم». عندها تعكس المبيعات واستهلاك الوصفة النشاط الحقيقي.'],
+        ['8','الهدر وتعديل المخزون','في «المخزون الفعلي» سجّل الهدر والمنتهي الصلاحية وأخطاء التحضير أو فروق الجرد. لا تحذف عملية شراء لتصحيح المخزون؛ استخدم «تعديل» أو «هدر».'],
+        ['9','مراجعة الربح','راجع «التحليل الذكي» و«المالية الذكية». افحص الهامش والمنتجات بلا وصفة وتنبيهات المخزون قبل تغيير الأسعار.'],
+        ['10','التقرير وإقفال الفترة','في نهاية الفترة راجع المحاسبة والمخزون الفعلي والتحليل الذكي؛ ثم أعد التقرير المهني أو التقرير الديناميكي بعد التحقق من البيانات.'],
+      ],
+      routines:[
+        ['☀','المهام اليومية',['سجّل كل عملية شراء مستلمة في «المخزون الفعلي».','سجّل المصروف غير المرتبط بالبضاعة في «المحاسبة».','حدّث الطلبات الفعلية واجعلها «تم التسليم».','سجّل الهدر أو فرق المخزون في اليوم نفسه.']],
+        ['📅','المهام الأسبوعية',['عدّ المواد الرئيسية فعلياً وقارنها بمخزون النظام.','أكمل وصفات المنتجات الناقصة.','راجع تنبيهات النقص والهدر والهامش المنخفض.']],
+        ['📊','الإقفال الشهري',['راجع التكاليف المتكررة ومدفوعات سعيد وأحمد وBBVA.','راجع المبيعات والمصروفات والهدر والربح التقديري.','بعد التحقق من البيانات، صدّر أو اطبع التقرير للشركاء أو gestor.']],
+      ],
+    }
+  };
+  const content = guides[language];
+  return <section className={`admin-guide-page guide-lang-${language}`} dir={language === 'es' ? 'ltr' : 'rtl'}>
+    <section className="admin-card guide-hero">
+      <div><span className="admin-kicker">{content.eyebrow}</span><h2>{content.title}</h2><p>{content.subtitle}</p></div>
+      <div className="smart-language-switch guide-language-switch">
+        <button className={language==='es'?'active':''} onClick={()=>setLanguage('es')}>Español</button>
+        <button className={language==='fa'?'active':''} onClick={()=>setLanguage('fa')}>فارسی</button>
+        <button className={language==='ar'?'active':''} onClick={()=>setLanguage('ar')}>العربية</button>
+      </div>
+    </section>
+    <section className="guide-warning"><strong>⚠ {content.warningTitle}</strong><p>{content.warning}</p></section>
+    <section className="guide-route"><span>{content.quick}</span><b>{content.route}</b></section>
+    <section className="guide-steps">{content.steps.map(([number,title,text])=><article className="admin-card guide-step" key={number}><span className="guide-number">{number}</span><div><h3>{title}</h3><p>{text}</p></div></article>)}</section>
+    <section className="guide-routines">{content.routines.map(([icon,title,rows])=><article className="admin-card guide-routine" key={title}><span>{icon}</span><h3>{title}</h3><ul>{rows.map(row=><li key={row}>{row}</li>)}</ul></article>)}</section>
+    <section className="guide-tip"><b>✓</b><p>{content.tip}</p></section>
+  </section>;
+}
+
 function ProfessionalReportsPanel() {
   const [lang, setLang] = useState('es');
   const [kind, setKind] = useState('financial');
@@ -4611,6 +4715,7 @@ function DashboardApp() {
     ['profit-intelligence','Análisis inteligente'],
     ['management-assistant','Asistente financiero'],
     ['professional-reports','Informes profesionales'],
+    ['admin-guide','Guía de registro'],
     ['system','Sistema / Backup'],
     ['config','Configuración'],
     ['menu','Categorías / Menú'],
@@ -5085,6 +5190,8 @@ function DashboardApp() {
 
       {tab === 'professional-reports' && <ProfessionalReportsPanel />}
 
+
+      {tab === 'admin-guide' && <AdminOperationsGuide />}
 
       {tab === 'system' && <section className="system-backup-page">
         <section className="system-health-grid">
