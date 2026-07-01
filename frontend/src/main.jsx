@@ -141,7 +141,6 @@ function applyAdminUiLanguage(language) {
   if (!isAdminRoute()) return;
   const translation = ADMIN_UI_TRANSLATIONS[language] || {};
   const root = document.body;
-  root.querySelectorAll('[data-cdkt-i18n-skip]').forEach(node => node.removeAttribute('data-cdkt-i18n-skip'));
   root.querySelectorAll('button, h1, h2, h3, h4, p, span, small, th, td, label, option, a, div').forEach(node => {
     if (node.closest('[data-cdkt-i18n-skip="true"]')) return;
     if (node.children.length > 0) return;
@@ -180,11 +179,14 @@ function AdminLanguageSwitch() {
     window.dispatchEvent(new Event('cdkt-admin-language-change'));
   }
 
-  return <div className="admin-global-language" data-cdkt-i18n-skip="true" aria-label="Admin language">
-    <button className={language === 'es' ? 'active' : ''} onClick={() => changeLanguage('es')} type="button">ES</button>
-    <button className={language === 'fa' ? 'active' : ''} onClick={() => changeLanguage('fa')} type="button">فا</button>
-    <button className={language === 'ar' ? 'active' : ''} onClick={() => changeLanguage('ar')} type="button">ع</button>
-  </div>;
+  return <aside className="admin-global-language" data-cdkt-i18n-skip="true" aria-label="Selector de idioma del panel">
+    <span className="admin-language-title">Idioma</span>
+    <div className="admin-language-buttons">
+      <button className={language === 'es' ? 'active' : ''} onClick={() => changeLanguage('es')} type="button">Español</button>
+      <button className={language === 'fa' ? 'active' : ''} onClick={() => changeLanguage('fa')} type="button">فارسی</button>
+      <button className={language === 'ar' ? 'active' : ''} onClick={() => changeLanguage('ar')} type="button">العربية</button>
+    </div>
+  </aside>;
 }
 
 function getAttachmentLabel(url = '') {
