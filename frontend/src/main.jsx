@@ -5271,6 +5271,10 @@ function DashboardApp() {
       {tab === 'daily-management' && <DailyManagementHub activeTab={tab} onNavigate={(nextTab) => { setTab(nextTab); if (nextTab === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }} />}
 
 
+      {DAILY_FINANCE_TABS.has(tab) && <DailyManagementSubnav activeTab={tab} onGo={(nextTab) => { setTab(nextTab); if (nextTab === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }} />}
+
+      {tab === 'daily-management' && <DailyManagementHub activeTab={tab} onGo={(nextTab) => { setTab(nextTab); if (nextTab === 'smart-finance') window.setTimeout(() => loadSmartFinance(), 0); }} />}
+
       {tab === 'smart-finance' && <SmartFinanceInventoryPanel
         financeData={smartFinanceData}
         recurringCosts={smartRecurringCosts}
