@@ -3575,6 +3575,26 @@ function ProfitIntelligencePanel() {
   </section>;
 }
 
+
+function ManagementAssistantPanel() {
+  const [lang,setLang]=useState('es');
+  const [brief,setBrief]=useState(null);
+  const [question,setQuestion]=useState('');
+  const [conversation,setConversation]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const tr={es:{title:'Asistente Financiero Inteligente',refresh:'Actualizar resumen',send:'Enviar resumen por Telegram',ask:'Preguntar',placeholder:'Ej.: ¿Hoy tuve beneficio? ¿Qué debo comprar? ¿Qué producto debo revisar?',daily:'Resumen inteligente de hoy',sales:'Ventas',expenses:'Gastos registrados',waste:'Mermas',profit:'Beneficio estimado',recommendation:'Recomendación'},fa:{title:'دستیار هوشمند مالی مدیر',refresh:'به‌روزرسانی خلاصه',send:'ارسال خلاصه به تلگرام',ask:'پرسش',placeholder:'مثال: امروز سود کردم؟ چه چیزی بخرم؟ کدام غذا نیاز به بررسی دارد؟',daily:'خلاصه هوشمند امروز',sales:'فروش',expenses:'هزینه‌های ثبت‌شده',waste:'ضایعات',profit:'سود تخمینی',recommendation:'پیشنهاد'},ar:{title:'المساعد المالي الذكي للإدارة',refresh:'تحديث الملخص',send:'إرسال الملخص إلى تيليجرام',ask:'اسأل',placeholder:'مثال: هل ربحت اليوم؟ ماذا يجب أن أشتري؟ أي منتج يحتاج إلى مراجعة؟',daily:'الملخص الذكي لليوم',sales:'المبيعات',expenses:'المصروفات المسجلة',waste:'الهدر',profit:'الربح التقديري',recommendation:'توصية'}}[lang];
+  const load=async()=>{try{setLoading(true);const r=await axios.get(`${API_BASE}/admin/management/brief/?language=${lang}`);setBrief(r.data)}catch(e){alert(e?.response?.data?.detail||'No se pudo cargar el resumen.')}finally{setLoading(false)}};
+  useEffect(()=>{load()},[lang]);
+  const ask=async e=>{e.preventDefault();if(!question.trim())return;const q=question.trim();setConversation(c=>[...c,{role:'user',text:q}]);setQuestion('');try{const r=await axios.post(`${API_BASE}/admin/management/assistant/`,{question:q,language:lang});setConversation(c=>[...c,{role:'assistant',text:r.data.answer}]);setBrief(b=>b?{...b,alerts:r.data.alerts}:b)}catch(err){setConversation(c=>[...c,{role:'assistant',text:err?.response?.data?.detail||'Error al analizar los datos.'}])}};
+  const telegram=async()=>{try{const r=await axios.post(`${API_BASE}/admin/management/send-telegram/`,{language:lang});alert(r.data.success?'Telegram enviado.':'No se pudo enviar Telegram. Revisa la configuración.')}catch(e){alert(e?.response?.data?.detail||'No se pudo enviar.')}}
+  const s=brief?.summary||{};
+  return <section className={`management-assistant-page lang-${lang}`} dir={lang==='ar'?'rtl':'ltr'}>
+    <section className="admin-card ma-head"><div><span className="admin-kicker">PHASE 4</span><h2>{tr.title}</h2></div><div className="real-inventory-actions"><div className="smart-language-switch"><button className={lang==='es'?'active':''} onClick={()=>setLang('es')}>Español</button><button className={lang==='fa'?'active':''} onClick={()=>setLang('fa')}>فارسی</button><button className={lang==='ar'?'active':''} onClick={()=>setLang('ar')}>العربية</button></div><button className="smart-primary" onClick={load} disabled={loading}>{loading?'...':tr.refresh}</button></div></section>
+    <section className="smart-finance-kpis"><article><span>{tr.sales}</span><b>{money(s.sales)}</b></article><article><span>{tr.expenses}</span><b>{money(s.registered_expenses)}</b></article><article><span>{tr.waste}</span><b>{money(s.waste_cost)}</b></article><article className={Number(s.estimated_net_profit)<0?'smart-negative':'smart-positive'}><span>{tr.profit}</span><b>{money(s.estimated_net_profit)}</b></article></section>
+    <section className="smart-finance-two-column"><article className="admin-card"><h2>{tr.daily}</h2><div className="smart-alert-list">{(brief?.alerts||[]).map((a,i)=><p className={`smart-alert ${a.level==='success'?'info':a.level}`} key={i}>{a.text}</p>)}</div><p className="ma-recommendation"><b>{tr.recommendation}: </b>{brief?.recommendation}</p><button className="mini-action ma-telegram" onClick={telegram}>{tr.send}</button></article><article className="admin-card ma-chat"><h2>{tr.title}</h2><div className="ma-chat-log">{conversation.length?conversation.map((m,i)=><div key={i} className={`ma-msg ${m.role}`}>{m.text}</div>):<p className="muted">{tr.placeholder}</p>}</div><form onSubmit={ask}><textarea value={question} onChange={e=>setQuestion(e.target.value)} placeholder={tr.placeholder}/><button className="pay">{tr.ask}</button></form></article></section>
+  </section>;
+}
+
 function DashboardApp() {
   usePageChrome();
   if (!getAdminToken()) return <AdminLoginApp />;
@@ -4350,6 +4370,7 @@ function DashboardApp() {
     ['smart-finance','Finanzas inteligentes'],
     ['inventory-real','Inventario real'],
     ['profit-intelligence','Análisis inteligente'],
+    ['management-assistant','Asistente financiero'],
     ['system','Sistema / Backup'],
     ['config','Configuración'],
     ['menu','Categorías / Menú'],
@@ -4817,6 +4838,9 @@ function DashboardApp() {
 
 
       {tab === 'profit-intelligence' && <ProfitIntelligencePanel />}
+
+
+      {tab === 'management-assistant' && <ManagementAssistantPanel />}
 
 
       {tab === 'system' && <section className="system-backup-page">

@@ -150,6 +150,9 @@ from .views import (
     admin_inventory_adjustment,
     admin_profit_intelligence_overview,
     admin_profit_intelligence_targets,
+    admin_management_daily_brief,
+    admin_management_assistant,
+    admin_management_send_telegram_brief,
 
 )
 
@@ -222,6 +225,11 @@ urlpatterns = [
     # Admin profit intelligence - phase 3
     path('admin/profit-intelligence/overview/', admin_profit_intelligence_overview, name='admin-profit-intelligence-overview'),
     path('admin/profit-intelligence/targets/', admin_profit_intelligence_targets, name='admin-profit-intelligence-targets'),
+
+    # Admin management assistant - phase 4
+    path('admin/management/brief/', admin_management_daily_brief, name='admin-management-daily-brief'),
+    path('admin/management/assistant/', admin_management_assistant, name='admin-management-assistant'),
+    path('admin/management/send-telegram/', admin_management_send_telegram_brief, name='admin-management-send-telegram'),
 
     # Admin partner accounting
 

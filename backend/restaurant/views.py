@@ -4038,3 +4038,281 @@ def admin_profit_intelligence_targets(request):
         return Response({'detail':str(exc)},status=status.HTTP_400_BAD_REQUEST)
     return Response({'monthly_revenue_target':float(target.monthly_revenue_target),'monthly_profit_target':float(target.monthly_profit_target)})
 
+# ============================================================
+# v24 Management Finance Assistant & actionable alert brief
+# This assistant is deterministic: it answers only from restaurant data.
+# Telegram delivery is manual from the Admin panel; no background scheduler
+# is added by this patch.
+# ============================================================
+
+def _management_language(value):
+    return value if value in ('es', 'fa', 'ar') else 'es'
+
+
+def _management_text(es, fa, ar, language):
+    return {'es': es, 'fa': fa, 'ar': ar}.get(language, es)
+
+
+def _management_snapshot():
+    from datetime import timedelta
+    from .models import RestaurantFinancialEntry, InventoryMovement, BusinessTarget
+
+    today = timezone.localdate()
+    start_week = today - timedelta(days=6)
+    approved = [RestaurantFinancialEntry.STATUS_APPROVED, RestaurantFinancialEntry.STATUS_REIMBURSED]
+
+    today_products = _profit_intelligence_product_rows(today, today)
+    week_products = _profit_intelligence_product_rows(start_week, today)
+    today_revenue = sum((_inventory_decimal(x['revenue']) for x in today_products), Decimal('0.00'))
+    today_product_profit = sum((_inventory_decimal(x['profit']) for x in today_products if x['profit'] is not None), Decimal('0.00'))
+    today_expenses = RestaurantFinancialEntry.objects.filter(
+        entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+        status__in=approved,
+        entry_date=today,
+    ).aggregate(x=Sum('amount'))['x'] or Decimal('0.00')
+    today_waste = InventoryMovement.objects.filter(
+        movement_type=InventoryMovement.TYPE_WASTE,
+        occurred_at__date=today,
+    ).aggregate(x=Sum('total_cost'))['x'] or Decimal('0.00')
+    week_revenue = sum((_inventory_decimal(x['revenue']) for x in week_products), Decimal('0.00'))
+    week_profit = sum((_inventory_decimal(x['profit']) for x in week_products if x['profit'] is not None), Decimal('0.00'))
+    week_waste = InventoryMovement.objects.filter(
+        movement_type=InventoryMovement.TYPE_WASTE,
+        occurred_at__date__gte=start_week,
+        occurred_at__date__lte=today,
+    ).aggregate(x=Sum('total_cost'))['x'] or Decimal('0.00')
+
+    inventory = _smart_finance_inventory_payload(today)
+    low_stock = [x for x in inventory if x.get('status') in ['urgent', 'low']]
+    target = BusinessTarget.current()
+    days_in_month = 30
+    daily_target = _inventory_decimal(target.monthly_revenue_target) / Decimal(days_in_month)
+    risks = [x for x in week_products if x.get('quadrant') == 'risk']
+    stars = [x for x in week_products if x.get('quadrant') == 'star']
+    weak = [x for x in week_products if x.get('quadrant') == 'weak']
+
+    return {
+        'today': today,
+        'today_revenue': today_revenue,
+        'today_expenses': today_expenses,
+        'today_waste': today_waste,
+        'today_net': today_product_profit - today_expenses,
+        'week_revenue': week_revenue,
+        'week_product_profit': week_profit,
+        'week_waste': week_waste,
+        'low_stock': low_stock,
+        'risks': risks,
+        'stars': stars,
+        'weak': weak,
+        'daily_sales_target': daily_target,
+        'monthly_revenue_target': _inventory_decimal(target.monthly_revenue_target),
+        'monthly_profit_target': _inventory_decimal(target.monthly_profit_target),
+    }
+
+
+def _management_alerts(snapshot, language):
+    alerts = []
+    if snapshot['daily_sales_target'] > 0 and snapshot['today_revenue'] < snapshot['daily_sales_target']:
+        difference = snapshot['daily_sales_target'] - snapshot['today_revenue']
+        alerts.append({
+            'level': 'warning',
+            'text': _management_text(
+                f'Las ventas de hoy están {difference.quantize(Decimal("0.01"))} € por debajo del objetivo diario.',
+                f'فروش امروز {difference.quantize(Decimal("0.01"))} € کمتر از هدف روزانه است.',
+                f'مبيعات اليوم أقل من الهدف اليومي بمقدار {difference.quantize(Decimal("0.01"))} €.',
+                language,
+            )
+        })
+    for item in snapshot['low_stock'][:3]:
+        qty = item.get('suggested_purchase_quantity', 0)
+        alerts.append({
+            'level': 'danger' if item.get('status') == 'urgent' else 'warning',
+            'text': _management_text(
+                f"Stock bajo: {item['name']}. Compra sugerida: {qty} {item['unit']}.",
+                f"موجودی {item['name']} کم است. خرید پیشنهادی: {qty} {item['unit']}.",
+                f"مخزون {item['name']} منخفض. الشراء المقترح: {qty} {item['unit']}.",
+                language,
+            )
+        })
+    if snapshot['risks']:
+        item = snapshot['risks'][0]
+        alerts.append({
+            'level': 'warning',
+            'text': _management_text(
+                f"{item['name']} vende bien pero su margen está por debajo del objetivo.",
+                f"{item['name']} پرفروش است اما حاشیه سود آن پایین‌تر از هدف است.",
+                f"{item['name']} يبيع جيداً لكن هامش ربحه أقل من الهدف.",
+                language,
+            )
+        })
+    if snapshot['week_revenue'] > 0 and snapshot['week_waste'] > snapshot['week_revenue'] * Decimal('0.05'):
+        alerts.append({
+            'level': 'danger',
+            'text': _management_text(
+                'El coste de mermas de la semana supera el 5 % de las ventas.',
+                'هزینه ضایعات این هفته بیشتر از ۵٪ فروش است.',
+                'تكلفة الهدر هذا الأسبوع تتجاوز 5٪ من المبيعات.',
+                language,
+            )
+        })
+    if not alerts:
+        alerts.append({
+            'level': 'success',
+            'text': _management_text(
+                'No hay alertas críticas en este momento.',
+                'در حال حاضر هشدار مهمی وجود ندارد.',
+                'لا توجد تنبيهات حرجة حالياً.',
+                language,
+            )
+        })
+    return alerts
+
+
+def _management_answer(question, snapshot, language):
+    query = str(question or '').strip().lower()
+    euro = lambda value: f"{_inventory_decimal(value).quantize(Decimal('0.01'))} €"
+
+    if not query:
+        return _management_text(
+            'Pregunta por beneficio, ventas, stock, compras, mermas, productos o socios.',
+            'درباره سود، فروش، انبار، خرید، ضایعات، غذاها یا شریک‌ها سؤال بپرسید.',
+            'اسأل عن الربح أو المبيعات أو المخزون أو المشتريات أو الهدر أو المنتجات أو الشركاء.',
+            language,
+        )
+
+    stock_keys = ['stock', 'inventario', 'compra', 'comprar', 'موجودی', 'انبار', 'خرید', 'مخزون', 'شراء']
+    profit_keys = ['beneficio', 'ganancia', 'rentable', 'sud', 'سود', 'ضرر', 'ربح', 'خسارة']
+    sale_keys = ['venta', 'ventas', 'facturación', 'فروش', 'مبيعات']
+    waste_keys = ['merma', 'desperdicio', 'residuo', 'ضایعات', 'هدر']
+    product_keys = ['producto', 'plato', 'durum', 'kebab', 'غذا', 'محصول', 'منتج', 'طبق']
+    partner_keys = ['saeid', 'ahmed', 'bbva', 'شریک', 'سعید', 'احمد', 'شريك']
+
+    if any(x in query for x in stock_keys):
+        low = snapshot['low_stock']
+        if low:
+            lines = [f"{x['name']}: +{x.get('suggested_purchase_quantity', 0)} {x['unit']}" for x in low[:5]]
+            return _management_text(
+                'Compras sugeridas: ' + '; '.join(lines) + '.',
+                'خریدهای پیشنهادی: ' + '؛ '.join(lines) + '.',
+                'المشتريات المقترحة: ' + '؛ '.join(lines) + '.',
+                language,
+            )
+        return _management_text('El stock actual no tiene alertas de reposición.', 'موجودی فعلی هشدار خرید ندارد.', 'المخزون الحالي لا يحتوي على تنبيهات شراء.', language)
+
+    if any(x in query for x in waste_keys):
+        return _management_text(
+            f"El coste de mermas de los últimos 7 días es {euro(snapshot['week_waste'])}.",
+            f"هزینه ضایعات ۷ روز اخیر {euro(snapshot['week_waste'])} است.",
+            f"تكلفة الهدر خلال آخر 7 أيام هي {euro(snapshot['week_waste'])}.",
+            language,
+        )
+
+    if any(x in query for x in partner_keys):
+        from .models import RestaurantFinancialEntry
+        approved = [RestaurantFinancialEntry.STATUS_APPROVED, RestaurantFinancialEntry.STATUS_REIMBURSED]
+        today = snapshot['today']
+        start = today.replace(day=1)
+        rows = RestaurantFinancialEntry.objects.filter(
+            entry_type=RestaurantFinancialEntry.TYPE_EXPENSE, status__in=approved,
+            entry_date__gte=start, entry_date__lte=today
+        ).values('paid_by').annotate(total=Sum('amount'))
+        parts = {x['paid_by']: x['total'] or Decimal('0.00') for x in rows}
+        return _management_text(
+            f"Gastos pagados este mes — Saeid: {euro(parts.get('saeid', 0))}; Ahmed: {euro(parts.get('ahmed', 0))}; BBVA: {euro(parts.get('bbva', 0))}.",
+            f"هزینه‌های پرداخت‌شده این ماه — سعید: {euro(parts.get('saeid', 0))}؛ احمد: {euro(parts.get('ahmed', 0))}؛ BBVA: {euro(parts.get('bbva', 0))}.",
+            f"المصروفات المدفوعة هذا الشهر — سعيد: {euro(parts.get('saeid', 0))}؛ أحمد: {euro(parts.get('ahmed', 0))}؛ BBVA: {euro(parts.get('bbva', 0))}.",
+            language,
+        )
+
+    if any(x in query for x in product_keys):
+        if snapshot['stars']:
+            item = snapshot['stars'][0]
+            return _management_text(
+                f"Producto recomendado: {item['name']}. Tiene ventas y margen buenos; conviene destacarlo.",
+                f"غذای پیشنهادی: {item['name']}. فروش و حاشیه سود خوبی دارد؛ بهتر است برجسته شود.",
+                f"المنتج المقترح: {item['name']}. لديه مبيعات وهامش ربح جيدان؛ من المناسب إبرازُه.",
+                language,
+            )
+        if snapshot['risks']:
+            item = snapshot['risks'][0]
+            return _management_text(
+                f"Revisar {item['name']}: vende bien, pero el margen está bajo el objetivo.",
+                f"{item['name']} را بررسی کنید: پرفروش است اما حاشیه سود پایین‌تر از هدف است.",
+                f"راجع {item['name']}: يبيع جيداً لكن الهامش أقل من الهدف.",
+                language,
+            )
+
+    if any(x in query for x in profit_keys):
+        return _management_text(
+            f"Resultado estimado de hoy: ingresos {euro(snapshot['today_revenue'])}, gastos registrados {euro(snapshot['today_expenses'])}, beneficio neto estimado {euro(snapshot['today_net'])}.",
+            f"نتیجه تخمینی امروز: فروش {euro(snapshot['today_revenue'])}، هزینه ثبت‌شده {euro(snapshot['today_expenses'])}، سود خالص تخمینی {euro(snapshot['today_net'])}.",
+            f"النتيجة التقديرية اليوم: المبيعات {euro(snapshot['today_revenue'])}، المصروفات المسجلة {euro(snapshot['today_expenses'])}، صافي الربح التقديري {euro(snapshot['today_net'])}.",
+            language,
+        )
+
+    if any(x in query for x in sale_keys):
+        return _management_text(
+            f"Ventas de hoy: {euro(snapshot['today_revenue'])}. Objetivo diario actual: {euro(snapshot['daily_sales_target'])}.",
+            f"فروش امروز: {euro(snapshot['today_revenue'])}. هدف روزانه فعلی: {euro(snapshot['daily_sales_target'])}.",
+            f"مبيعات اليوم: {euro(snapshot['today_revenue'])}. الهدف اليومي الحالي: {euro(snapshot['daily_sales_target'])}.",
+            language,
+        )
+
+    return _management_text(
+        'Puedo responder con datos sobre beneficio, ventas, inventario, compras sugeridas, mermas, productos y socios.',
+        'می‌توانم با داده‌های واقعی درباره سود، فروش، انبار، خرید پیشنهادی، ضایعات، غذاها و شریک‌ها پاسخ بدهم.',
+        'يمكنني الإجابة بالبيانات الفعلية عن الربح والمبيعات والمخزون والمشتريات المقترحة والهدر والمنتجات والشركاء.',
+        language,
+    )
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_management_daily_brief(request):
+    language = _management_language(request.query_params.get('language', 'es'))
+    snapshot = _management_snapshot()
+    alerts = _management_alerts(snapshot, language)
+    suggestion = _management_answer('producto', snapshot, language)
+    return Response({
+        'date': snapshot['today'].isoformat(),
+        'summary': {
+            'sales': float(snapshot['today_revenue']),
+            'registered_expenses': float(snapshot['today_expenses']),
+            'waste_cost': float(snapshot['today_waste']),
+            'estimated_net_profit': float(snapshot['today_net']),
+            'daily_sales_target': float(snapshot['daily_sales_target']),
+        },
+        'alerts': alerts,
+        'recommendation': suggestion,
+    })
+
+
+@api_view(['POST'])
+@admin_token_required
+def admin_management_assistant(request):
+    language = _management_language((request.data or {}).get('language', 'es'))
+    question = str((request.data or {}).get('question') or '').strip()
+    snapshot = _management_snapshot()
+    return Response({
+        'answer': _management_answer(question, snapshot, language),
+        'alerts': _management_alerts(snapshot, language),
+        'data_timestamp': timezone.now().isoformat(),
+    })
+
+
+@api_view(['POST'])
+@admin_token_required
+def admin_management_send_telegram_brief(request):
+    language = _management_language((request.data or {}).get('language', 'es'))
+    snapshot = _management_snapshot()
+    alerts = _management_alerts(snapshot, language)
+    summary = _management_text(
+        f"📊 Resumen de hoy\nVentas: {snapshot['today_revenue'].quantize(Decimal('0.01'))} €\nBeneficio neto estimado: {snapshot['today_net'].quantize(Decimal('0.01'))} €",
+        f"📊 خلاصه امروز\nفروش: {snapshot['today_revenue'].quantize(Decimal('0.01'))} €\nسود خالص تخمینی: {snapshot['today_net'].quantize(Decimal('0.01'))} €",
+        f"📊 ملخص اليوم\nالمبيعات: {snapshot['today_revenue'].quantize(Decimal('0.01'))} €\nصافي الربح التقديري: {snapshot['today_net'].quantize(Decimal('0.01'))} €",
+        language,
+    )
+    message = 'Casa de Kebab Turco\n' + summary + '\n\n' + '\n'.join(f"• {x['text']}" for x in alerts[:4])
+    ok = send_telegram_message(message)
+    return Response({'success': bool(ok), 'message': message})
+
