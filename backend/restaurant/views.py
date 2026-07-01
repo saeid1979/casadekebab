@@ -3767,8 +3767,14 @@ def admin_inventory_purchase(request):
     try:
         ingredient = Ingredient.objects.get(id=int(data.get('ingredient_id')))
         quantity = _inventory_decimal(data.get('quantity'))
-        unit_cost = _inventory_decimal(data.get('unit_cost') if data.get('unit_cost') not in (None, '') else ingredient.unit_cost, '0.0000')
-        iva_percent = _inventory_decimal(data.get('iva_percent') if data.get('iva_percent') not in (None, '') else '10.00', '0.00')
+        unit_cost = _inventory_decimal(
+            data.get('unit_cost') if data.get('unit_cost') not in (None, '') else ingredient.unit_cost,
+            '0.0000'
+        )
+        iva_percent = _inventory_decimal(
+            data.get('iva_percent') if data.get('iva_percent') not in (None, '') else '10.00',
+            '0.00'
+        )
         if quantity <= 0 or unit_cost < 0 or iva_percent < 0 or iva_percent > Decimal('100.00'):
             raise ValueError('Cantidad, coste unitario o IVA no válidos.')
 
@@ -3781,48 +3787,46 @@ def admin_inventory_purchase(request):
             purchase_date = parse_date(str(data.get('purchase_date') or '')) or timezone.localdate()
             occurred = timezone.make_aware(timezone.datetime.combine(purchase_date, timezone.datetime.min.time()))
 
-        if data.get('category_id'):
-            category = ExpenseCategory.objects.get(id=int(data['category_id']))
-        else:
-            category, _ = ExpenseCategory.objects.get_or_create(name='Materias primas')
-
-        detail = str(data.get('notes') or '').strip()
-        iva_note = f'Base: {subtotal_amount} € | IVA {iva_percent}%: {iva_amount} € | Total: {total_amount} €'
-        description = f'{detail}\n{iva_note}'.strip()
+        category, _ = ExpenseCategory.objects.get_or_create(name='Materias primas')
+        supplier = str(data.get('supplier_name') or ingredient.supplier_name or '').strip()
+        invoice_number = str(data.get('invoice_number') or '').strip()
+        notes = str(data.get('notes') or '').strip()
         entry = RestaurantFinancialEntry.objects.create(
             entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
             title=f'Compra: {ingredient.name}',
-            description=description,
+            description=(notes + f'\nBase: {subtotal_amount} € | IVA {iva_percent}%: {iva_amount} € | Total: {total_amount} €').strip(),
             amount=total_amount,
             entry_date=occurred.date(),
             category=category,
             paid_by=str(data.get('paid_by') or RestaurantFinancialEntry.PARTY_BBVA),
             payment_method=str(data.get('payment_method') or RestaurantFinancialEntry.PAYMENT_BBVA),
-            invoice_number=str(data.get('invoice_number') or '').strip(),
+            invoice_number=invoice_number,
             status=RestaurantFinancialEntry.STATUS_APPROVED,
             created_by_username=request.admin_user.get_username(),
             updated_by_username=request.admin_user.get_username(),
         )
-
         movement, _ = _inventory_apply_movement(
             ingredient_id=ingredient.id,
             movement_type=InventoryMovement.TYPE_PURCHASE,
             quantity_delta=quantity,
             unit_cost_snapshot=unit_cost,
             total_cost=subtotal_amount,
-            iva_percent=iva_percent,
-            iva_amount=iva_amount,
-            total_amount_with_iva=total_amount,
             financial_entry=entry,
-            supplier_name=str(data.get('supplier_name') or ingredient.supplier_name or '').strip(),
-            invoice_number=str(data.get('invoice_number') or '').strip(),
+            supplier_name=supplier,
+            invoice_number=invoice_number,
             reference='Compra de inventario',
-            notes=detail,
+            notes=notes,
             occurred_at=occurred,
             username=request.admin_user.get_username(),
         )
-        if data.get('supplier_name'):
-            ingredient.supplier_name = str(data['supplier_name']).strip()
+        # No change to the shared inventory helper is needed. These fields are
+        # saved directly after the normal stock movement is created.
+        movement.iva_percent = iva_percent
+        movement.iva_amount = iva_amount
+        movement.total_amount_with_iva = total_amount
+        movement.save(update_fields=['iva_percent', 'iva_amount', 'total_amount_with_iva'])
+        if supplier:
+            ingredient.supplier_name = supplier
             ingredient.save(update_fields=['supplier_name', 'updated_at'])
     except (ValueError, TypeError, Ingredient.DoesNotExist, ExpenseCategory.DoesNotExist) as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -3832,15 +3836,12 @@ def admin_inventory_purchase(request):
         'movement': _inventory_movement_payload(movement),
         'financial_entry_id': entry.id,
         'calculation': {
-            'quantity': float(quantity),
-            'unit_cost_without_iva': float(unit_cost),
             'subtotal_amount': float(subtotal_amount),
             'iva_percent': float(iva_percent),
             'iva_amount': float(iva_amount),
             'total_amount_with_iva': float(total_amount),
         },
     }, status=status.HTTP_201_CREATED)
-
 
 @api_view(['POST'])
 @admin_token_required

@@ -3104,3 +3104,13 @@ html[data-admin-language="ar"] .admin-pro-page select{text-align:right}
 .purchase-iva-summary div{display:flex;justify-content:space-between;gap:12px;padding:5px 0;color:#4e3a30}
 .purchase-iva-summary .purchase-iva-total{border-top:1px dashed #d8b6a3;padding-top:10px;font-size:16px;color:#741c17}
 
+
+/* v40: Automatic purchase total + IVA */
+.purchase-tax-summary {
+  display:grid; gap:7px; padding:13px; border:1px solid #e8d2c4;
+  border-radius:13px; background:#fffaf5;
+}
+.purchase-tax-summary p { margin:0 0 3px; color:#6b594d; font-size:13px; }
+.purchase-tax-summary > div { display:flex; justify-content:space-between; gap:12px; padding:4px 0; }
+.purchase-tax-total { padding-top:10px !important; border-top:1px dashed #d5b6a1; color:#7a1f1a; font-size:16px; }
+
