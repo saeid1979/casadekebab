@@ -1518,3 +1518,19 @@ class InventoryMovement(models.Model):
     def __str__(self):
         return f'{self.ingredient.name} {self.movement_type} {self.quantity_delta}'
 
+# v23 Profit Intelligence goals
+class BusinessTarget(models.Model):
+    monthly_revenue_target = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    monthly_profit_target = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    updated_by_username = models.CharField(max_length=150, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Business target'
+        verbose_name_plural = 'Business targets'
+
+    @classmethod
+    def current(cls):
+        obj, _ = cls.objects.get_or_create(id=1)
+        return obj
+

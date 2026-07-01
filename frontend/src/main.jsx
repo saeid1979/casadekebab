@@ -3552,6 +3552,29 @@ function RealInventoryPanel({ expenseCategories = [] }) {
   </section>;
 }
 
+
+function ProfitIntelligencePanel() {
+  const [lang,setLang]=useState('es');
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [targets,setTargets]=useState({monthly_revenue_target:'0',monthly_profit_target:'0'});
+  const tr={es:{title:'Análisis Inteligente de Beneficio',refresh:'Actualizar',targets:'Objetivos mensuales',revenue:'Ventas',profit:'Beneficio neto estimado',expense:'Gastos',waste:'Mermas',needRevenue:'Venta diaria necesaria',needProfit:'Beneficio diario necesario',products:'Rentabilidad real por producto',partners:'Aportación y gastos por socio',save:'Guardar objetivos',print:'Imprimir informe',alerts:'Alertas',star:'⭐ Vende y gana',risk:'⚠ Vende pero margen bajo',hidden:'💎 Margen alto, pocas ventas',weak:'❌ Bajo rendimiento',missing:'Sin receta completa'},
+  fa:{title:'تحلیل هوشمند سود و زیان',refresh:'به‌روزرسانی',targets:'اهداف ماهانه',revenue:'فروش',profit:'سود خالص تخمینی',expense:'هزینه‌ها',waste:'ضایعات',needRevenue:'فروش روزانه لازم',needProfit:'سود روزانه لازم',products:'سودآوری واقعی هر غذا',partners:'پرداخت و هزینه شریک‌ها',save:'ذخیره اهداف',print:'چاپ گزارش',alerts:'هشدارها',star:'⭐ پرفروش و پرسود',risk:'⚠ پرفروش با سود کم',hidden:'💎 سود بالا، فروش کم',weak:'❌ عملکرد ضعیف',missing:'بدون دستور کامل'},
+  ar:{title:'التحليل الذكي للأرباح والخسائر',refresh:'تحديث',targets:'الأهداف الشهرية',revenue:'المبيعات',profit:'صافي الربح التقديري',expense:'المصروفات',waste:'الهدر',needRevenue:'المبيعات اليومية المطلوبة',needProfit:'الربح اليومي المطلوب',products:'الربحية الفعلية لكل منتج',partners:'مساهمة ومصروفات الشركاء',save:'حفظ الأهداف',print:'طباعة التقرير',alerts:'التنبيهات',star:'⭐ مبيعات وربح مرتفعان',risk:'⚠ مبيعات عالية وهامش منخفض',hidden:'💎 هامش مرتفع ومبيعات قليلة',weak:'❌ أداء ضعيف',missing:'وصفة غير مكتملة'}}[lang];
+  const load=async()=>{try{setLoading(true);const [a,b]=await Promise.all([axios.get(`${API_BASE}/admin/profit-intelligence/overview/`),axios.get(`${API_BASE}/admin/profit-intelligence/targets/`)]);setData(a.data);setTargets({monthly_revenue_target:String(b.data.monthly_revenue_target||0),monthly_profit_target:String(b.data.monthly_profit_target||0)});}catch(e){alert(e?.response?.data?.detail||'No se pudo cargar el análisis.')}finally{setLoading(false)}};
+  useEffect(()=>{load()},[]);
+  const save=async e=>{e.preventDefault();try{await axios.patch(`${API_BASE}/admin/profit-intelligence/targets/`,targets);await load()}catch(err){alert(err?.response?.data?.detail||'No se pudo guardar.')}};
+  const q=x=>({star:tr.star,risk:tr.risk,hidden:tr.hidden,weak:tr.weak,missing:tr.missing}[x]||x);
+  const s=data?.summary||{}, t=data?.targets||{};
+  return <section className={`profit-intelligence-page lang-${lang}`} dir={lang==='ar'?'rtl':'ltr'}>
+    <section className="admin-card pi-head"><div><span className="admin-kicker">PHASE 3</span><h2>{tr.title}</h2></div><div className="real-inventory-actions"><div className="smart-language-switch"><button className={lang==='es'?'active':''} onClick={()=>setLang('es')}>Español</button><button className={lang==='fa'?'active':''} onClick={()=>setLang('fa')}>فارسی</button><button className={lang==='ar'?'active':''} onClick={()=>setLang('ar')}>العربية</button></div><button className="smart-primary" onClick={load} disabled={loading}>{loading?'...':tr.refresh}</button></div></section>
+    <section className="smart-finance-kpis"><article><span>{tr.revenue}</span><b>{money(s.revenue)}</b></article><article><span>{tr.expense}</span><b>{money(s.actual_expenses)}</b></article><article><span>{tr.waste}</span><b>{money(s.waste_cost)}</b></article><article className={Number(s.estimated_net_profit)<0?'smart-negative':'smart-positive'}><span>{tr.profit}</span><b>{money(s.estimated_net_profit)}</b></article></section>
+    <section className="smart-finance-two-column"><article className="admin-card"><h2>{tr.targets}</h2><form className="smart-recurring-form" onSubmit={save}><input type="number" step="0.01" min="0" placeholder="Objetivo ventas mensual (€)" value={targets.monthly_revenue_target} onChange={e=>setTargets({...targets,monthly_revenue_target:e.target.value})}/><input type="number" step="0.01" min="0" placeholder="Objetivo beneficio mensual (€)" value={targets.monthly_profit_target} onChange={e=>setTargets({...targets,monthly_profit_target:e.target.value})}/><button className="pay">{tr.save}</button></form></article><article className="admin-card"><h2>{tr.alerts}</h2>{(data?.warnings||[]).map((w,i)=><p key={i} className={`smart-alert ${w.level}`}>{w[lang]||w.es}</p>)}{!(data?.warnings||[]).length&&<p className="muted">✓ Sin alertas críticas.</p>}<p><b>{tr.needRevenue}: </b>{money(t.daily_revenue_needed)}</p><p><b>{tr.needProfit}: </b>{money(t.daily_profit_needed)}</p><button className="print-button" onClick={()=>window.print()}>{tr.print}</button></article></section>
+    <section className="admin-card"><h2>{tr.products}</h2><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Producto</th><th>Unidades</th><th>Ventas</th><th>Coste/u</th><th>Beneficio</th><th>Margen</th><th>Diagnóstico</th></tr></thead><tbody>{(data?.products||[]).map(r=><tr key={`${r.menu_item_id}-${r.name}`}><td>{r.name}</td><td>{r.units}</td><td>{money(r.revenue)}</td><td>{r.unit_cost===null?'—':money(r.unit_cost)}</td><td>{r.profit===null?'—':money(r.profit)}</td><td>{r.margin_percent===null?'—':`${r.margin_percent}%`}</td><td><span className={`pi-badge ${r.quadrant}`}>{q(r.quadrant)}</span></td></tr>)}</tbody></table></div></section>
+    <section className="admin-card"><h2>{tr.partners}</h2><div className="smart-forecast-grid">{(data?.partners||[]).map(r=><div key={r.party}><span>{r.party}</span><b>{money(r.expenses_paid)}</b></div>)}</div></section>
+  </section>;
+}
+
 function DashboardApp() {
   usePageChrome();
   if (!getAdminToken()) return <AdminLoginApp />;
@@ -4326,6 +4349,7 @@ function DashboardApp() {
     ['profitability','Rentabilidad'],
     ['smart-finance','Finanzas inteligentes'],
     ['inventory-real','Inventario real'],
+    ['profit-intelligence','Análisis inteligente'],
     ['system','Sistema / Backup'],
     ['config','Configuración'],
     ['menu','Categorías / Menú'],
@@ -4790,6 +4814,9 @@ function DashboardApp() {
 
 
       {tab === 'inventory-real' && <RealInventoryPanel expenseCategories={expenseCategories} />}
+
+
+      {tab === 'profit-intelligence' && <ProfitIntelligencePanel />}
 
 
       {tab === 'system' && <section className="system-backup-page">

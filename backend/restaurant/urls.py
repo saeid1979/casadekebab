@@ -148,6 +148,8 @@ from .views import (
     admin_inventory_purchase,
     admin_inventory_waste,
     admin_inventory_adjustment,
+    admin_profit_intelligence_overview,
+    admin_profit_intelligence_targets,
 
 )
 
@@ -216,6 +218,10 @@ urlpatterns = [
     path('admin/inventory/purchase/', admin_inventory_purchase, name='admin-inventory-purchase'),
     path('admin/inventory/waste/', admin_inventory_waste, name='admin-inventory-waste'),
     path('admin/inventory/adjustment/', admin_inventory_adjustment, name='admin-inventory-adjustment'),
+
+    # Admin profit intelligence - phase 3
+    path('admin/profit-intelligence/overview/', admin_profit_intelligence_overview, name='admin-profit-intelligence-overview'),
+    path('admin/profit-intelligence/targets/', admin_profit_intelligence_targets, name='admin-profit-intelligence-targets'),
 
     # Admin partner accounting
 

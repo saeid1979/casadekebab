@@ -3868,3 +3868,173 @@ def admin_inventory_adjustment(request):
         return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     return Response({'success': True, 'movement': _inventory_movement_payload(movement)}, status=status.HTTP_201_CREATED)
 
+# ============================================================
+# v23 Profit Intelligence: product analysis, targets, partners
+# ============================================================
+
+def _profit_intelligence_range(request):
+    from django.utils.dateparse import parse_date
+    from datetime import timedelta
+    today = timezone.localdate()
+    start = parse_date(str(request.query_params.get('date_from') or '')) or (today - timedelta(days=29))
+    end = parse_date(str(request.query_params.get('date_to') or '')) or today
+    if start > end:
+        raise ValueError('La fecha inicial no puede ser posterior a la fecha final.')
+    if (end - start).days > 366:
+        raise ValueError('El periodo máximo es de 366 días.')
+    return start, end
+
+
+def _profit_intelligence_product_rows(date_from, date_to):
+    from .models import OrderItem, ProductCostProfile
+    sales = (
+        OrderItem.objects.filter(order__created_at__date__gte=date_from, order__created_at__date__lte=date_to)
+        .exclude(order__status=Order.STATUS_CANCELLED)
+        .values('menu_item_id', 'name_snapshot')
+        .annotate(units=Sum('quantity'), revenue=Sum('total'))
+        .order_by('-revenue')
+    )
+    profiles = {
+        x.menu_item_id: x
+        for x in ProductCostProfile.objects.select_related('menu_item').prefetch_related('components__ingredient').all()
+    }
+    rows = []
+    for row in sales:
+        profile = profiles.get(row['menu_item_id'])
+        units = _inventory_decimal(row['units'])
+        revenue = _inventory_decimal(row['revenue'])
+        unit_cost = None
+        if profile and profile.components.exists():
+            ingredients_cost = sum(
+                (_inventory_decimal(c.quantity) * _inventory_decimal(c.ingredient.unit_cost))
+                for c in profile.components.all()
+            )
+            unit_cost = ingredients_cost + _inventory_decimal(profile.packaging_cost) + _inventory_decimal(profile.fixed_cost)
+        total_cost = unit_cost * units if unit_cost is not None else Decimal('0.00')
+        profit = revenue - total_cost if unit_cost is not None else None
+        margin = (profit / revenue * Decimal('100')) if profit is not None and revenue > 0 else None
+        rows.append({
+            'menu_item_id': row['menu_item_id'],
+            'name': row['name_snapshot'],
+            'units': float(units),
+            'revenue': float(revenue),
+            'unit_cost': float(unit_cost.quantize(Decimal('0.0001'))) if unit_cost is not None else None,
+            'total_cost': float(total_cost.quantize(Decimal('0.01'))) if unit_cost is not None else None,
+            'profit': float(profit.quantize(Decimal('0.01'))) if profit is not None else None,
+            'margin_percent': float(margin.quantize(Decimal('0.1'))) if margin is not None else None,
+            'target_margin_percent': float(profile.target_margin_percent) if profile else None,
+            'has_recipe': bool(profile and profile.components.exists()),
+        })
+    if not rows:
+        return rows
+
+    avg_units = sum(Decimal(str(r['units'])) for r in rows) / Decimal(len(rows))
+    for row in rows:
+        high_sales = Decimal(str(row['units'])) >= avg_units
+        good_margin = row['margin_percent'] is not None and row['target_margin_percent'] is not None and Decimal(str(row['margin_percent'])) >= Decimal(str(row['target_margin_percent']))
+        if row['margin_percent'] is None:
+            row['quadrant'] = 'missing'
+        elif high_sales and good_margin:
+            row['quadrant'] = 'star'
+        elif high_sales and not good_margin:
+            row['quadrant'] = 'risk'
+        elif not high_sales and good_margin:
+            row['quadrant'] = 'hidden'
+        else:
+            row['quadrant'] = 'weak'
+    return rows
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_profit_intelligence_overview(request):
+    from datetime import timedelta
+    from .models import RestaurantFinancialEntry, AccountingSettings, BusinessTarget, InventoryMovement
+
+    try:
+        date_from, date_to = _profit_intelligence_range(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    products = _profit_intelligence_product_rows(date_from, date_to)
+    revenue = sum((_inventory_decimal(x['revenue']) for x in products), Decimal('0.00'))
+    estimated_product_profit = sum((_inventory_decimal(x['profit']) for x in products if x['profit'] is not None), Decimal('0.00'))
+    configured_revenue = sum((_inventory_decimal(x['revenue']) for x in products if x['has_recipe']), Decimal('0.00'))
+
+    approved = [RestaurantFinancialEntry.STATUS_APPROVED, RestaurantFinancialEntry.STATUS_REIMBURSED]
+    expenses = RestaurantFinancialEntry.objects.filter(
+        entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+        status__in=approved,
+        entry_date__gte=date_from, entry_date__lte=date_to
+    )
+    total_expenses = expenses.aggregate(x=Sum('amount'))['x'] or Decimal('0.00')
+    partner_rows = []
+    for party in [RestaurantFinancialEntry.PARTY_SAEID, RestaurantFinancialEntry.PARTY_AHMED, RestaurantFinancialEntry.PARTY_BBVA]:
+        paid = expenses.filter(paid_by=party).aggregate(x=Sum('amount'))['x'] or Decimal('0.00')
+        partner_rows.append({'party': party, 'expenses_paid': float(paid)})
+
+    waste = InventoryMovement.objects.filter(
+        movement_type=InventoryMovement.TYPE_WASTE,
+        occurred_at__date__gte=date_from, occurred_at__date__lte=date_to
+    ).aggregate(x=Sum('total_cost'))['x'] or Decimal('0.00')
+    target = BusinessTarget.current()
+    settings = AccountingSettings.current()
+    days = (date_to - date_from).days + 1
+    month_days = 30
+    revenue_target_for_period = _inventory_decimal(target.monthly_revenue_target) / Decimal(month_days) * Decimal(days)
+    profit_target_for_period = _inventory_decimal(target.monthly_profit_target) / Decimal(month_days) * Decimal(days)
+    net_estimate = estimated_product_profit - total_expenses
+    daily_revenue_needed = max(Decimal('0.00'), (_inventory_decimal(target.monthly_revenue_target) - revenue) / Decimal(max(1, month_days - min(days, month_days))))
+    daily_profit_needed = max(Decimal('0.00'), (_inventory_decimal(target.monthly_profit_target) - net_estimate) / Decimal(max(1, month_days - min(days, month_days))))
+
+    warnings = []
+    if configured_revenue < revenue:
+        warnings.append({'level':'warning','es':'Hay productos vendidos sin receta de coste completa; parte del beneficio es estimada.','fa':'برخی محصولات فروخته‌شده دستور و هزینه کامل ندارند؛ بخشی از سود تخمینی است.','ar':'هناك منتجات مباعة بلا وصفة تكلفة مكتملة؛ جزء من الربح تقديري.'})
+    if waste > revenue * Decimal('0.05') and revenue > 0:
+        warnings.append({'level':'danger','es':'El coste de mermas supera el 5 % de las ventas del periodo.','fa':'هزینه ضایعات بیش از ۵٪ فروش این بازه است.','ar':'تكلفة الهدر تتجاوز 5٪ من مبيعات الفترة.'})
+    for row in products:
+        if row['quadrant'] == 'risk':
+            warnings.append({'level':'warning','es':f"{row['name']} vende bien pero su margen está bajo el objetivo.",'fa':f"{row['name']} پرفروش است اما حاشیه سود آن زیر هدف است.",'ar':f"{row['name']} يبيع جيداً لكن هامش ربحه أقل من الهدف."})
+            break
+
+    return Response({
+        'period': {'date_from':date_from.isoformat(),'date_to':date_to.isoformat(),'days':days},
+        'summary': {
+            'revenue':float(revenue), 'estimated_product_profit':float(estimated_product_profit.quantize(Decimal('0.01'))),
+            'actual_expenses':float(total_expenses), 'waste_cost':float(waste),
+            'estimated_net_profit':float(net_estimate.quantize(Decimal('0.01')),
+            ), 'configured_revenue':float(configured_revenue),
+        },
+        'targets': {
+            'monthly_revenue_target':float(target.monthly_revenue_target),
+            'monthly_profit_target':float(target.monthly_profit_target),
+            'period_revenue_target':float(revenue_target_for_period.quantize(Decimal('0.01'))),
+            'period_profit_target':float(profit_target_for_period.quantize(Decimal('0.01'))),
+            'daily_revenue_needed':float(daily_revenue_needed.quantize(Decimal('0.01'))),
+            'daily_profit_needed':float(daily_profit_needed.quantize(Decimal('0.01'))),
+        },
+        'partners': partner_rows,
+        'ownership': {'saeid_percent':float(settings.saeid_share_percent),'ahmed_percent':float(settings.ahmed_share_percent)},
+        'products': products,
+        'warnings': warnings,
+    })
+
+
+@api_view(['GET', 'PATCH'])
+@admin_token_required
+def admin_profit_intelligence_targets(request):
+    from .models import BusinessTarget
+    target = BusinessTarget.current()
+    if request.method == 'GET':
+        return Response({'monthly_revenue_target':float(target.monthly_revenue_target),'monthly_profit_target':float(target.monthly_profit_target)})
+    try:
+        target.monthly_revenue_target = _inventory_decimal(request.data.get('monthly_revenue_target'))
+        target.monthly_profit_target = _inventory_decimal(request.data.get('monthly_profit_target'))
+        if target.monthly_revenue_target < 0 or target.monthly_profit_target < 0:
+            raise ValueError('Los objetivos no pueden ser negativos.')
+        target.updated_by_username = request.admin_user.get_username()
+        target.save()
+    except (ValueError, TypeError) as exc:
+        return Response({'detail':str(exc)},status=status.HTTP_400_BAD_REQUEST)
+    return Response({'monthly_revenue_target':float(target.monthly_revenue_target),'monthly_profit_target':float(target.monthly_profit_target)})
+
