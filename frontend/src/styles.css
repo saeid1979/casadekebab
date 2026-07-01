@@ -2975,3 +2975,23 @@ nav button:hover{background:#fff;border-color:#ecc5be;transform:translateY(-1px)
 /* v25 Professional reports phase 5 */
 .professional-reports-page{display:grid;gap:18px}.pr-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.pr-head h2{margin:4px 0}.pr-controls{display:flex;gap:9px;flex-wrap:wrap;align-items:end}.pr-controls select,.pr-controls input{border:1px solid #dfcfc2;border-radius:9px;padding:10px;background:#fff;font:inherit}.pr-controls label{display:grid;gap:4px;font-size:12px;font-weight:800;color:#6d5b50}.pr-print{background:#254f68!important}.pr-note{margin:0;padding:11px 13px;border-left:4px solid #2d6f95;background:#f0f7fb;color:#315369;font-size:13px}.pr-summary article b{font-size:20px}@media(max-width:720px){.pr-head{display:grid;grid-template-columns:1fr}.pr-controls>*{width:100%}.pr-controls label input,.pr-controls select,.pr-controls button{width:100%}}@media print{.topbar,.admin-nav,.pr-controls,.toast,.role-switcher,.logout-button,.session-pill,.pr-note{display:none!important}.professional-reports-page{padding:0}.pr-report-print{box-shadow:none;border:0}.professional-reports-page .admin-card{box-shadow:none}.professional-reports-page .smart-finance-kpis{grid-template-columns:repeat(2,1fr)}}
 
+/* v26 Admin PRO global multilingual interface */
+.admin-global-language{display:inline-flex!important;gap:4px!important;align-items:center!important;margin-left:6px!important;padding:4px!important;border:1px solid #e5c9bf!important;border-radius:999px!important;background:#fff!important;direction:ltr!important}
+.admin-global-language button{margin:0!important;min-width:35px!important;padding:7px 9px!important;border:0!important;border-radius:999px!important;background:transparent!important;color:#6c3429!important;font-size:12px!important;font-weight:800!important;line-height:1!important}
+.admin-global-language button.active{background:#8f1d18!important;color:#fff!important}
+html[data-admin-language="fa"] .admin-pro-page,
+html[data-admin-language="fa"] .menu-admin-page,
+html[data-admin-language="fa"] .settings-page,
+html[data-admin-language="ar"] .admin-pro-page,
+html[data-admin-language="ar"] .menu-admin-page,
+html[data-admin-language="ar"] .settings-page{font-family:Tahoma,Arial,sans-serif;text-align:right}
+html[data-admin-language="fa"] .admin-tabs,
+html[data-admin-language="ar"] .admin-tabs{direction:rtl}
+html[data-admin-language="fa"] .admin-table th,
+html[data-admin-language="fa"] .admin-table td,
+html[data-admin-language="ar"] .admin-table th,
+html[data-admin-language="ar"] .admin-table td{text-align:right}
+html[data-admin-language="fa"] .form-row,
+html[data-admin-language="ar"] .form-row{direction:rtl}
+@media(max-width:760px){.admin-global-language{margin:4px 0!important}.admin-global-language button{min-width:31px!important;padding:7px!important}}
+
