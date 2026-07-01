@@ -3595,6 +3595,84 @@ function ManagementAssistantPanel() {
   </section>;
 }
 
+
+function ProfessionalReportsPanel() {
+  const [lang, setLang] = useState('es');
+  const [kind, setKind] = useState('financial');
+  const [period, setPeriod] = useState(() => {
+    const end = new Date().toISOString().slice(0, 10);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 29);
+    return { date_from: startDate.toISOString().slice(0,10), date_to: end };
+  });
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const tr = {
+    es: { title:'Informes profesionales', preview:'Actualizar vista previa', financial:'Financiero', inventory:'Inventario', profitability:'Rentabilidad', partners:'Socios y BBVA', export:'Exportar', print:'Imprimir / Guardar PDF', csv:'CSV', xlsx:'Excel', pdf:'PDF (Español)', period:'Periodo', summary:'Resumen', rows:'Detalle' },
+    fa: { title:'گزارش‌های حرفه‌ای', preview:'به‌روزرسانی پیش‌نمایش', financial:'مالی', inventory:'انبار', profitability:'سودآوری', partners:'شریک‌ها و BBVA', export:'خروجی', print:'چاپ / ذخیره PDF', csv:'CSV', xlsx:'Excel', pdf:'PDF (اسپانیایی)', period:'بازه', summary:'خلاصه', rows:'جزئیات' },
+    ar: { title:'التقارير المهنية', preview:'تحديث المعاينة', financial:'مالي', inventory:'المخزون', profitability:'الربحية', partners:'الشركاء و BBVA', export:'تصدير', print:'طباعة / حفظ PDF', csv:'CSV', xlsx:'Excel', pdf:'PDF (الإسبانية)', period:'الفترة', summary:'الملخص', rows:'التفاصيل' },
+  }[lang];
+
+  const params = () => new URLSearchParams({ kind, language: lang, ...period }).toString();
+  const load = async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get(`${API_BASE}/admin/professional-reports/preview/?${params()}`);
+      setReport(res.data || null);
+    } catch (err) {
+      window.alert(err?.response?.data?.detail || 'No se pudo preparar el informe.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, [kind, lang]);
+
+  const download = async format => {
+    try {
+      const response = await axios.get(`${API_BASE}/admin/professional-reports/export/?${params()}&format=${format}`, { responseType:'blob' });
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      const disposition = response.headers?.['content-disposition'] || '';
+      const found = disposition.match(/filename="?([^"]+)"?/i);
+      anchor.download = found?.[1] || `casadekebab_${kind}.${format}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      window.alert('No se pudo generar el archivo. Comprueba que reportlab y openpyxl estén instalados en el Backend.');
+    }
+  };
+  const cols = report?.columns || [];
+  return <section className={`professional-reports-page lang-${lang}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+    <section className="admin-card pr-head">
+      <div><span className="admin-kicker">PHASE 5</span><h2>{tr.title}</h2><p>{report?.title || ''}</p></div>
+      <div className="real-inventory-actions">
+        <div className="smart-language-switch"><button className={lang==='es'?'active':''} onClick={()=>setLang('es')}>Español</button><button className={lang==='fa'?'active':''} onClick={()=>setLang('fa')}>فارسی</button><button className={lang==='ar'?'active':''} onClick={()=>setLang('ar')}>العربية</button></div>
+      </div>
+    </section>
+    <section className="admin-card pr-controls">
+      <select value={kind} onChange={e=>setKind(e.target.value)}><option value="financial">{tr.financial}</option><option value="inventory">{tr.inventory}</option><option value="profitability">{tr.profitability}</option><option value="partners">{tr.partners}</option></select>
+      <label>{tr.period}<input type="date" value={period.date_from} onChange={e=>setPeriod({...period,date_from:e.target.value})}/></label>
+      <label>—<input type="date" value={period.date_to} onChange={e=>setPeriod({...period,date_to:e.target.value})}/></label>
+      <button className="smart-primary" onClick={load} disabled={loading}>{loading?'...':tr.preview}</button>
+      <button className="mini-action" onClick={()=>download('csv')}>{tr.csv}</button>
+      <button className="mini-action" onClick={()=>download('xlsx')}>{tr.xlsx}</button>
+      <button className="mini-action" onClick={()=>download('pdf')}>{tr.pdf}</button>
+      <button className="mini-action pr-print" onClick={()=>window.print()}>{tr.print}</button>
+    </section>
+    <section className="smart-finance-kpis pr-summary">
+      {(report?.summary || []).map((item, index) => <article key={index}><span>{item.label}</span><b>{typeof item.value === 'number' ? money(item.value) : item.value}</b></article>)}
+    </section>
+    <section className="admin-card pr-report-print">
+      <h2>{tr.rows}</h2>
+      <div className="admin-table-wrap"><table className="admin-table"><thead><tr>{cols.map(([key,title])=><th key={key}>{title}</th>)}</tr></thead><tbody>{(report?.rows || []).map((row,index)=><tr key={index}>{cols.map(([key])=><td key={key}>{row[key] === null || row[key] === undefined ? '—' : (typeof row[key] === 'number' && /(amount|cost|revenue|profit|margin|stock|total)/i.test(key) ? row[key] : String(row[key]))}</td>)}</tr>)}{!(report?.rows || []).length && <tr><td colSpan={Math.max(1,cols.length)} className="muted">Sin datos en este periodo.</td></tr>}</tbody></table></div>
+    </section>
+    <p className="pr-note">PDF del servidor: Español. Para فارسی یا العربية، usa “Imprimir / Guardar PDF” desde esta pantalla.</p>
+  </section>;
+}
+
 function DashboardApp() {
   usePageChrome();
   if (!getAdminToken()) return <AdminLoginApp />;
@@ -4371,6 +4449,7 @@ function DashboardApp() {
     ['inventory-real','Inventario real'],
     ['profit-intelligence','Análisis inteligente'],
     ['management-assistant','Asistente financiero'],
+    ['professional-reports','Informes profesionales'],
     ['system','Sistema / Backup'],
     ['config','Configuración'],
     ['menu','Categorías / Menú'],
@@ -4841,6 +4920,9 @@ function DashboardApp() {
 
 
       {tab === 'management-assistant' && <ManagementAssistantPanel />}
+
+
+      {tab === 'professional-reports' && <ProfessionalReportsPanel />}
 
 
       {tab === 'system' && <section className="system-backup-page">

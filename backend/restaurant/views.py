@@ -4316,3 +4316,386 @@ def admin_management_send_telegram_brief(request):
     ok = send_telegram_message(message)
     return Response({'success': bool(ok), 'message': message})
 
+# ============================================================
+# v25 Professional reports: preview, CSV, XLSX and PDF
+# PDF generated server-side is intentionally Spanish-only because the
+# standard ReportLab fonts do not reliably shape Persian/Arabic text.
+# For Persian/Arabic use the multilingual on-screen report and browser print.
+# ============================================================
+
+def _professional_report_language(value):
+    return value if value in ('es', 'fa', 'ar') else 'es'
+
+
+def _professional_report_range(request):
+    from django.utils.dateparse import parse_date
+    from datetime import timedelta
+
+    today = timezone.localdate()
+    date_from = parse_date(str(request.query_params.get('date_from') or '')) or (today - timedelta(days=29))
+    date_to = parse_date(str(request.query_params.get('date_to') or '')) or today
+    if date_from > date_to:
+        raise ValueError('La fecha inicial no puede ser posterior a la fecha final.')
+    if (date_to - date_from).days > 366:
+        raise ValueError('El periodo máximo es de 366 días.')
+    return date_from, date_to
+
+
+def _professional_report_labels(language):
+    labels = {
+        'es': {
+            'title': 'Casa de Kebab Turco — Informe profesional',
+            'period': 'Periodo',
+            'financial': 'Informe financiero',
+            'inventory': 'Informe de inventario',
+            'profitability': 'Informe de rentabilidad',
+            'partners': 'Informe de socios',
+            'sales': 'Ventas',
+            'expenses': 'Gastos registrados',
+            'waste': 'Mermas',
+            'net': 'Resultado neto estimado',
+            'ingredient': 'Ingrediente',
+            'stock': 'Stock actual',
+            'unit_cost': 'Coste unitario',
+            'movement': 'Movimiento',
+            'product': 'Producto',
+            'units': 'Unidades',
+            'revenue': 'Ingresos',
+            'cost': 'Coste',
+            'profit': 'Beneficio',
+            'margin': 'Margen',
+            'partner': 'Pagado por',
+            'amount': 'Importe',
+        },
+        'fa': {
+            'title': 'Casa de Kebab Turco — گزارش حرفه‌ای',
+            'period': 'بازه',
+            'financial': 'گزارش مالی',
+            'inventory': 'گزارش انبار',
+            'profitability': 'گزارش سودآوری',
+            'partners': 'گزارش شریک‌ها',
+            'sales': 'فروش',
+            'expenses': 'هزینه‌های ثبت‌شده',
+            'waste': 'ضایعات',
+            'net': 'نتیجه خالص تخمینی',
+            'ingredient': 'ماده اولیه',
+            'stock': 'موجودی فعلی',
+            'unit_cost': 'هزینه واحد',
+            'movement': 'گردش',
+            'product': 'محصول',
+            'units': 'تعداد',
+            'revenue': 'درآمد',
+            'cost': 'هزینه',
+            'profit': 'سود',
+            'margin': 'حاشیه سود',
+            'partner': 'پرداخت‌کننده',
+            'amount': 'مبلغ',
+        },
+        'ar': {
+            'title': 'Casa de Kebab Turco — تقرير مهني',
+            'period': 'الفترة',
+            'financial': 'التقرير المالي',
+            'inventory': 'تقرير المخزون',
+            'profitability': 'تقرير الربحية',
+            'partners': 'تقرير الشركاء',
+            'sales': 'المبيعات',
+            'expenses': 'المصروفات المسجلة',
+            'waste': 'الهدر',
+            'net': 'صافي النتيجة التقديرية',
+            'ingredient': 'المادة',
+            'stock': 'المخزون الحالي',
+            'unit_cost': 'تكلفة الوحدة',
+            'movement': 'الحركة',
+            'product': 'المنتج',
+            'units': 'الوحدات',
+            'revenue': 'الإيرادات',
+            'cost': 'التكلفة',
+            'profit': 'الربح',
+            'margin': 'الهامش',
+            'partner': 'المدفوع بواسطة',
+            'amount': 'المبلغ',
+        },
+    }
+    return labels[language]
+
+
+def _professional_report_payload(kind, date_from, date_to, language):
+    from .models import RestaurantFinancialEntry, InventoryMovement, Ingredient
+
+    labels = _professional_report_labels(language)
+    approved = [
+        RestaurantFinancialEntry.STATUS_APPROVED,
+        RestaurantFinancialEntry.STATUS_REIMBURSED,
+    ]
+    title_key = kind if kind in ('financial', 'inventory', 'profitability', 'partners') else 'financial'
+    result = {
+        'kind': title_key,
+        'title': labels[title_key],
+        'labels': labels,
+        'period': {'date_from': date_from.isoformat(), 'date_to': date_to.isoformat()},
+        'summary': [],
+        'rows': [],
+    }
+
+    if title_key == 'financial':
+        orders = Order.objects.filter(
+            created_at__date__gte=date_from,
+            created_at__date__lte=date_to,
+        ).exclude(status=Order.STATUS_CANCELLED)
+        sales = orders.aggregate(total=Sum('total'))['total'] or Decimal('0.00')
+        expenses = RestaurantFinancialEntry.objects.filter(
+            entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+            status__in=approved,
+            entry_date__gte=date_from,
+            entry_date__lte=date_to,
+        )
+        expenses_total = expenses.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        waste = InventoryMovement.objects.filter(
+            movement_type=InventoryMovement.TYPE_WASTE,
+            occurred_at__date__gte=date_from,
+            occurred_at__date__lte=date_to,
+        ).aggregate(total=Sum('total_cost'))['total'] or Decimal('0.00')
+        result['summary'] = [
+            {'label': labels['sales'], 'value': float(sales)},
+            {'label': labels['expenses'], 'value': float(expenses_total)},
+            {'label': labels['waste'], 'value': float(waste)},
+            {'label': labels['net'], 'value': float((sales - expenses_total - waste).quantize(Decimal('0.01')))},
+        ]
+        result['rows'] = [
+            {
+                'date': row.entry_date.isoformat(),
+                'title': row.title,
+                'category': row.category.name if row.category_id else '',
+                'paid_by': row.paid_by,
+                'amount': float(row.amount),
+                'invoice_number': row.invoice_number or '',
+            }
+            for row in expenses.select_related('category').order_by('-entry_date', '-id')
+        ]
+        result['columns'] = [
+            ('date', 'Fecha'), ('title', 'Concepto'), ('category', 'Categoría'),
+            ('paid_by', 'Pagado por'), ('amount', 'Importe (€)'), ('invoice_number', 'Factura'),
+        ]
+
+    elif title_key == 'inventory':
+        ingredients = Ingredient.objects.filter(is_active=True).order_by('name')
+        movements = InventoryMovement.objects.filter(
+            occurred_at__date__gte=date_from,
+            occurred_at__date__lte=date_to,
+        ).select_related('ingredient').order_by('-occurred_at', '-id')
+        result['summary'] = [
+            {'label': 'Ingredientes activos', 'value': ingredients.count()},
+            {'label': 'Movimientos del periodo', 'value': movements.count()},
+        ]
+        result['rows'] = [
+            {
+                'ingredient': row.ingredient.name,
+                'type': row.movement_type,
+                'quantity_delta': float(row.quantity_delta),
+                'unit': row.ingredient.unit,
+                'unit_cost': float(row.unit_cost_snapshot),
+                'total_cost': float(row.total_cost),
+                'supplier': row.supplier_name or '',
+                'date': row.occurred_at.strftime('%Y-%m-%d %H:%M'),
+            }
+            for row in movements
+        ]
+        result['inventory_stock'] = [
+            {
+                'ingredient': item.name,
+                'stock': float(item.stock_quantity),
+                'unit': item.unit,
+                'unit_cost': float(item.unit_cost),
+                'reorder_level': float(item.reorder_level),
+            }
+            for item in ingredients
+        ]
+        result['columns'] = [
+            ('ingredient', 'Ingrediente'), ('type', 'Movimiento'), ('quantity_delta', 'Cambio'),
+            ('unit', 'Unidad'), ('unit_cost', 'Coste/u'), ('total_cost', 'Coste total'),
+            ('supplier', 'Proveedor'), ('date', 'Fecha'),
+        ]
+
+    elif title_key == 'profitability':
+        rows = _profit_intelligence_product_rows(date_from, date_to)
+        result['rows'] = rows
+        total_revenue = sum((_inventory_decimal(row['revenue']) for row in rows), Decimal('0.00'))
+        total_profit = sum((_inventory_decimal(row['profit']) for row in rows if row['profit'] is not None), Decimal('0.00'))
+        result['summary'] = [
+            {'label': labels['revenue'], 'value': float(total_revenue)},
+            {'label': labels['profit'], 'value': float(total_profit.quantize(Decimal('0.01')))},
+            {'label': 'Productos con receta completa', 'value': sum(1 for row in rows if row['has_recipe'])},
+        ]
+        result['columns'] = [
+            ('name', 'Producto'), ('units', 'Unidades'), ('revenue', 'Ingresos (€)'),
+            ('unit_cost', 'Coste/u (€)'), ('total_cost', 'Coste total (€)'),
+            ('profit', 'Beneficio (€)'), ('margin_percent', 'Margen %'), ('quadrant', 'Diagnóstico'),
+        ]
+
+    else:
+        entries = RestaurantFinancialEntry.objects.filter(
+            entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+            status__in=approved,
+            entry_date__gte=date_from,
+            entry_date__lte=date_to,
+        ).values('paid_by').annotate(amount=Sum('amount')).order_by('paid_by')
+        result['rows'] = [{'party': row['paid_by'], 'amount': float(row['amount'] or 0)} for row in entries]
+        result['summary'] = [{'label': 'Total gastos de socios y BBVA', 'value': float(sum((_inventory_decimal(x['amount']) for x in result['rows']), Decimal('0.00')))}]
+        result['columns'] = [('party', 'Pagado por'), ('amount', 'Importe (€)')]
+
+    return result
+
+
+def _professional_csv_response(payload):
+    import csv
+    from io import StringIO
+    from django.http import HttpResponse
+
+    stream = StringIO()
+    writer = csv.writer(stream)
+    writer.writerow([payload['title']])
+    writer.writerow([f"{payload['period']['date_from']} — {payload['period']['date_to']}"])
+    writer.writerow([])
+    for row in payload['summary']:
+        writer.writerow([row['label'], row['value']])
+    writer.writerow([])
+    writer.writerow([title for _, title in payload['columns']])
+    for row in payload['rows']:
+        writer.writerow([row.get(key, '') for key, _ in payload['columns']])
+    response = HttpResponse(stream.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = f"attachment; filename=casadekebab_{payload['kind']}_{payload['period']['date_from']}_{payload['period']['date_to']}.csv"
+    return response
+
+
+def _professional_xlsx_response(payload):
+    from io import BytesIO
+    from django.http import HttpResponse
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return Response({'detail': 'Falta openpyxl. Instala: pip install openpyxl'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = payload['kind'][:31]
+    sheet.append([payload['title']])
+    sheet.append([f"{payload['period']['date_from']} — {payload['period']['date_to']}"])
+    sheet.append([])
+    for row in payload['summary']:
+        sheet.append([row['label'], row['value']])
+    sheet.append([])
+    sheet.append([title for _, title in payload['columns']])
+    for row in payload['rows']:
+        sheet.append([row.get(key, '') for key, _ in payload['columns']])
+
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, size=14)
+    header_row = 4 + len(payload['summary']) + 1
+    for cell in sheet[header_row]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='8F1D18')
+        cell.alignment = Alignment(horizontal='center')
+    for column in range(1, sheet.max_column + 1):
+        width = min(42, max(12, max(len(str(sheet.cell(row, column).value or '')) for row in range(1, sheet.max_row + 1)) + 2))
+        sheet.column_dimensions[get_column_letter(column)].width = width
+    sheet.freeze_panes = f'A{header_row + 1}'
+
+    output = BytesIO()
+    workbook.save(output)
+    response = HttpResponse(
+        output.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f"attachment; filename=casadekebab_{payload['kind']}_{payload['period']['date_from']}_{payload['period']['date_to']}.xlsx"
+    return response
+
+
+def _professional_pdf_response(payload):
+    from io import BytesIO
+    from django.http import HttpResponse
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    except ImportError:
+        return Response({'detail': 'Falta reportlab. Instala: pip install reportlab'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    # Use Spanish PDF labels to ensure reliable embedded-font output.
+    spanish_payload = _professional_report_payload(payload['kind'], timezone.datetime.fromisoformat(payload['period']['date_from']).date(), timezone.datetime.fromisoformat(payload['period']['date_to']).date(), 'es')
+    output = BytesIO()
+    doc = SimpleDocTemplate(output, pagesize=A4, rightMargin=14*mm, leftMargin=14*mm, topMargin=14*mm, bottomMargin=14*mm)
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph('Casa de Kebab Turco', styles['Title']),
+        Paragraph(spanish_payload['title'], styles['Heading2']),
+        Paragraph(f"Periodo: {spanish_payload['period']['date_from']} — {spanish_payload['period']['date_to']}", styles['Normal']),
+        Spacer(1, 8),
+    ]
+    summary_rows = [[row['label'], f"{_inventory_decimal(row['value']).quantize(Decimal('0.01')) if isinstance(row['value'], (int, float)) else row['value']}"] for row in spanish_payload['summary']]
+    if summary_rows:
+        table = Table(summary_rows, colWidths=[115*mm, 55*mm])
+        table.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.3, colors.HexColor('#D7C7BB')),
+            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#F7F0EA')),
+            ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
+            ('PADDING', (0,0), (-1,-1), 6),
+        ]))
+        story.extend([table, Spacer(1, 10)])
+
+    raw_rows = [[title for _, title in spanish_payload['columns']]]
+    for row in spanish_payload['rows'][:200]:
+        raw_rows.append([str(row.get(key, ''))[:46] for key, _ in spanish_payload['columns']])
+    if len(raw_rows) > 1:
+        widths = [170*mm / max(1, len(spanish_payload['columns']))] * len(spanish_payload['columns'])
+        table = Table(raw_rows, colWidths=widths, repeatRows=1)
+        table.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.25, colors.HexColor('#DDDDDD')),
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#8F1D18')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,-1), 7),
+            ('PADDING', (0,0), (-1,-1), 4),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ]))
+        story.append(table)
+    doc.build(story)
+    response = HttpResponse(output.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f"attachment; filename=casadekebab_{payload['kind']}_{payload['period']['date_from']}_{payload['period']['date_to']}.pdf"
+    return response
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_professional_reports_preview(request):
+    try:
+        date_from, date_to = _professional_report_range(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    kind = str(request.query_params.get('kind') or 'financial').strip()
+    language = _professional_report_language(request.query_params.get('language') or 'es')
+    return Response(_professional_report_payload(kind, date_from, date_to, language))
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_professional_reports_export(request):
+    try:
+        date_from, date_to = _professional_report_range(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    kind = str(request.query_params.get('kind') or 'financial').strip()
+    language = _professional_report_language(request.query_params.get('language') or 'es')
+    export_format = str(request.query_params.get('format') or 'csv').strip().lower()
+    payload = _professional_report_payload(kind, date_from, date_to, language)
+    if export_format == 'csv':
+        return _professional_csv_response(payload)
+    if export_format == 'xlsx':
+        return _professional_xlsx_response(payload)
+    if export_format == 'pdf':
+        return _professional_pdf_response(payload)
+    return Response({'detail': 'Formato no válido. Usa csv, xlsx o pdf.'}, status=status.HTTP_400_BAD_REQUEST)
+

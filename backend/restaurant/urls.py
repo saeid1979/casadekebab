@@ -153,6 +153,8 @@ from .views import (
     admin_management_daily_brief,
     admin_management_assistant,
     admin_management_send_telegram_brief,
+    admin_professional_reports_preview,
+    admin_professional_reports_export,
 
 )
 
@@ -230,6 +232,10 @@ urlpatterns = [
     path('admin/management/brief/', admin_management_daily_brief, name='admin-management-daily-brief'),
     path('admin/management/assistant/', admin_management_assistant, name='admin-management-assistant'),
     path('admin/management/send-telegram/', admin_management_send_telegram_brief, name='admin-management-send-telegram'),
+
+    # Admin professional reports - phase 5
+    path('admin/professional-reports/preview/', admin_professional_reports_preview, name='admin-professional-reports-preview'),
+    path('admin/professional-reports/export/', admin_professional_reports_export, name='admin-professional-reports-export'),
 
     # Admin partner accounting
 
