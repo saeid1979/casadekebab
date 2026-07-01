@@ -3628,10 +3628,11 @@ function RealInventoryPanel({ expenseCategories = [] }) {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState('purchase');
   const [form, setForm] = useState({ ingredient_id: '', quantity: '', total_amount: '', supplier_name: '', invoice_number: '', paid_by: 'bbva', payment_method: 'bbva', notes: '' });
+  const [ingredientForm, setIngredientForm] = useState({ name:'', unit:'kg', unit_cost:'', stock_quantity:'0', reorder_level:'', supplier_name:'' });
   const tr = {
-    es: { title:'Compras e Inventario Real', sub:'Registra compras y mermas; el stock baja automáticamente cuando el pedido llega a Entregado.', refresh:'Actualizar', purchase:'Registrar compra', waste:'Registrar merma', stock:'Stock real', suggested:'Lista de compra sugerida (7 días)', movements:'Movimientos recientes', ingredient:'Ingrediente', quantity:'Cantidad', amount:'Importe total (€)', supplier:'Proveedor', invoice:'Factura', notes:'Notas', save:'Guardar', days:'Días', use:'Consumo/día', noData:'No hay ingredientes configurados.', purchaseDone:'Compra registrada y gasto añadido a Contabilidad.', wasteDone:'Merma registrada.', type:'Tipo', delta:'Cambio', stockNow:'Stock actual', danger:'Urgente', low:'Bajo', ok:'Correcto' },
-    fa: { title:'خرید و انبار واقعی', sub:'خرید و ضایعات را ثبت کنید؛ پس از تحویل‌شدن سفارش، موجودی مواد اولیه خودکار کم می‌شود.', refresh:'به‌روزرسانی', purchase:'ثبت خرید', waste:'ثبت ضایعات', stock:'موجودی واقعی', suggested:'لیست خرید پیشنهادی (۷ روز)', movements:'گردش‌های اخیر', ingredient:'ماده اولیه', quantity:'مقدار', amount:'مبلغ کل (€)', supplier:'تأمین‌کننده', invoice:'شماره فاکتور', notes:'توضیحات', save:'ذخیره', days:'روز', use:'مصرف/روز', noData:'ماده اولیه‌ای تعریف نشده است.', purchaseDone:'خرید ثبت و هزینه آن به حسابداری اضافه شد.', wasteDone:'ضایعات ثبت شد.', type:'نوع', delta:'تغییر', stockNow:'موجودی فعلی', danger:'فوری', low:'کم', ok:'مناسب' },
-    ar: { title:'المشتريات والمخزون الفعلي', sub:'سجل المشتريات والهدر؛ ينخفض المخزون تلقائياً عندما تصبح حالة الطلب «تم التسليم».', refresh:'تحديث', purchase:'تسجيل شراء', waste:'تسجيل هدر', stock:'المخزون الفعلي', suggested:'قائمة شراء مقترحة (7 أيام)', movements:'آخر الحركات', ingredient:'المادة', quantity:'الكمية', amount:'إجمالي المبلغ (€)', supplier:'المورد', invoice:'رقم الفاتورة', notes:'ملاحظات', save:'حفظ', days:'الأيام', use:'الاستهلاك/يوم', noData:'لا توجد مواد أولية مضافة.', purchaseDone:'تم تسجيل الشراء وإضافة المصروف للمحاسبة.', wasteDone:'تم تسجيل الهدر.', type:'النوع', delta:'التغيير', stockNow:'المخزون الحالي', danger:'عاجل', low:'منخفض', ok:'جيد' },
+    es: { title:'Compras e Inventario Real', sub:'Aquí puedes crear una materia prima, registrar compras, mermas y revisar el stock.', refresh:'Actualizar', addIngredient:'Añadir materia prima', purchase:'Registrar compra', waste:'Registrar merma', stock:'Stock real', suggested:'Lista de compra sugerida (7 días)', movements:'Movimientos recientes', ingredient:'Ingrediente', ingredientName:'Nombre de la materia prima', unit:'Unidad', unitCost:'Coste por unidad (€)', initialStock:'Stock inicial', minimumStock:'Stock mínimo / alerta', quantity:'Cantidad', amount:'Importe total (€)', supplier:'Proveedor', invoice:'Factura', notes:'Notas', save:'Guardar', create:'Crear materia prima', days:'Días', use:'Consumo/día', noData:'No hay ingredientes configurados.', purchaseDone:'Compra registrada y gasto añadido a Contabilidad.', wasteDone:'Merma registrada.', ingredientDone:'Materia prima creada. Ya puedes registrar su compra.', type:'Tipo', delta:'Cambio', stockNow:'Stock actual', danger:'Urgente', low:'Bajo', ok:'Correcto', needName:'Escribe el nombre de la materia prima.' },
+    fa: { title:'خرید و انبار واقعی', sub:'در همین بخش ماده اولیه جدید بسازید، خرید و ضایعات را ثبت کنید و موجودی را ببینید.', refresh:'به‌روزرسانی', addIngredient:'افزودن ماده اولیه', purchase:'ثبت خرید', waste:'ثبت ضایعات', stock:'موجودی واقعی', suggested:'لیست خرید پیشنهادی (۷ روز)', movements:'گردش‌های اخیر', ingredient:'ماده اولیه', ingredientName:'نام ماده اولیه', unit:'واحد', unitCost:'هزینه هر واحد (€)', initialStock:'موجودی اولیه', minimumStock:'حداقل موجودی / هشدار', quantity:'مقدار', amount:'مبلغ کل (€)', supplier:'تأمین‌کننده', invoice:'شماره فاکتور', notes:'توضیحات', save:'ذخیره', create:'ساخت ماده اولیه', days:'روز', use:'مصرف/روز', noData:'ماده اولیه‌ای تعریف نشده است.', purchaseDone:'خرید ثبت و هزینه آن به حسابداری اضافه شد.', wasteDone:'ضایعات ثبت شد.', ingredientDone:'ماده اولیه ساخته شد؛ اکنون می‌توانید خرید آن را ثبت کنید.', type:'نوع', delta:'تغییر', stockNow:'موجودی فعلی', danger:'فوری', low:'کم', ok:'مناسب', needName:'نام ماده اولیه را وارد کنید.' },
+    ar: { title:'المشتريات والمخزون الفعلي', sub:'من هنا يمكنك إنشاء مادة أولية وتسجيل المشتريات والهدر ومراجعة المخزون.', refresh:'تحديث', addIngredient:'إضافة مادة أولية', purchase:'تسجيل شراء', waste:'تسجيل هدر', stock:'المخزون الفعلي', suggested:'قائمة شراء مقترحة (7 أيام)', movements:'آخر الحركات', ingredient:'المادة', ingredientName:'اسم المادة الأولية', unit:'الوحدة', unitCost:'تكلفة الوحدة (€)', initialStock:'المخزون الافتتاحي', minimumStock:'الحد الأدنى / تنبيه', quantity:'الكمية', amount:'إجمالي المبلغ (€)', supplier:'المورد', invoice:'رقم الفاتورة', notes:'ملاحظات', save:'حفظ', create:'إنشاء المادة الأولية', days:'الأيام', use:'الاستهلاك/يوم', noData:'لا توجد مواد أولية مضافة.', purchaseDone:'تم تسجيل الشراء وإضافة المصروف للمحاسبة.', wasteDone:'تم تسجيل الهدر.', ingredientDone:'تم إنشاء المادة الأولية ويمكنك الآن تسجيل شرائها.', type:'النوع', delta:'التغيير', stockNow:'المخزون الحالي', danger:'عاجل', low:'منخفض', ok:'جيد', needName:'اكتب اسم المادة الأولية.' },
   }[language];
 
   const load = async () => {
@@ -3640,7 +3641,8 @@ function RealInventoryPanel({ expenseCategories = [] }) {
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
-  const submit = async e => {
+
+  const submitMovement = async e => {
     e.preventDefault();
     const endpoint = mode === 'purchase' ? 'purchase' : 'waste';
     const payload = mode === 'purchase' ? form : { ingredient_id:form.ingredient_id, quantity:form.quantity, notes:form.notes };
@@ -3651,22 +3653,57 @@ function RealInventoryPanel({ expenseCategories = [] }) {
       await load();
     } catch (err) { window.alert(err?.response?.data?.detail || 'No se pudo guardar el movimiento.'); }
   };
+
+  const createIngredient = async e => {
+    e.preventDefault();
+    if (!ingredientForm.name.trim()) { window.alert(tr.needName); return; }
+    try {
+      const res = await axios.post(`${API_BASE}/admin/profitability/ingredients/`, {
+        ...ingredientForm,
+        unit_cost: ingredientForm.unit_cost || 0,
+        stock_quantity: ingredientForm.stock_quantity || 0,
+        reorder_level: ingredientForm.reorder_level || 0,
+        is_active: true,
+      });
+      window.alert(tr.ingredientDone);
+      setForm(current => ({ ...current, ingredient_id: String(res.data?.id || '') }));
+      setIngredientForm({ name:'', unit:'kg', unit_cost:'', stock_quantity:'0', reorder_level:'', supplier_name:'' });
+      setMode('purchase');
+      await load();
+    } catch (err) { window.alert(err?.response?.data?.detail || 'No se pudo crear la materia prima.'); }
+  };
+
   const selected = (data.ingredients || []).find(x => String(x.id) === String(form.ingredient_id));
   return <section className={`real-inventory-page lang-${language}`} dir={language === 'ar' ? 'rtl' : 'ltr'}>
     <section className="admin-card real-inventory-head">
-      <div><span className="admin-kicker">PHASE 2</span><h2>{tr.title}</h2><p>{tr.sub}</p></div>
-      <div className="real-inventory-actions"><div className="smart-language-switch"><button className={language==='es'?'active':''} onClick={()=>setLanguage('es')}>Español</button><button className={language==='fa'?'active':''} onClick={()=>setLanguage('fa')}>فارسی</button><button className={language==='ar'?'active':''} onClick={()=>setLanguage('ar')}>العربية</button></div><button className="smart-primary" onClick={load} disabled={loading}>{loading?'...':tr.refresh}</button></div>
+      <div><span className="admin-kicker">GESTIÓN DIARIA</span><h2>{tr.title}</h2><p>{tr.sub}</p></div>
+      <div className="real-inventory-actions"><button className="smart-primary" onClick={load} disabled={loading}>{loading?'...':tr.refresh}</button></div>
     </section>
     <section className="real-inventory-grid">
-      <article className="admin-card">
-        <div className="real-mode-switch"><button className={mode==='purchase'?'active':''} onClick={()=>setMode('purchase')}>{tr.purchase}</button><button className={mode==='waste'?'active':''} onClick={()=>setMode('waste')}>{tr.waste}</button></div>
-        <form className="smart-recurring-form" onSubmit={submit}>
+      <article className="admin-card inventory-action-card">
+        <div className="real-mode-switch">
+          <button className={mode==='add'?'active':''} onClick={()=>setMode('add')}>{tr.addIngredient}</button>
+          <button className={mode==='purchase'?'active':''} onClick={()=>setMode('purchase')}>{tr.purchase}</button>
+          <button className={mode==='waste'?'active':''} onClick={()=>setMode('waste')}>{tr.waste}</button>
+        </div>
+
+        {mode === 'add' ? <form className="smart-recurring-form" onSubmit={createIngredient}>
+          <input required placeholder={tr.ingredientName} value={ingredientForm.name} onChange={e=>setIngredientForm({...ingredientForm,name:e.target.value})}/>
+          <select value={ingredientForm.unit} onChange={e=>setIngredientForm({...ingredientForm,unit:e.target.value})}>
+            <option value="kg">kg</option><option value="g">g</option><option value="l">l</option><option value="ml">ml</option><option value="unit">unidad</option><option value="pack">pack</option>
+          </select>
+          <input type="number" min="0" step="0.0001" placeholder={tr.unitCost} value={ingredientForm.unit_cost} onChange={e=>setIngredientForm({...ingredientForm,unit_cost:e.target.value})}/>
+          <input type="number" min="0" step="0.001" placeholder={`${tr.initialStock} (${ingredientForm.unit})`} value={ingredientForm.stock_quantity} onChange={e=>setIngredientForm({...ingredientForm,stock_quantity:e.target.value})}/>
+          <input type="number" min="0" step="0.001" placeholder={`${tr.minimumStock} (${ingredientForm.unit})`} value={ingredientForm.reorder_level} onChange={e=>setIngredientForm({...ingredientForm,reorder_level:e.target.value})}/>
+          <input placeholder={tr.supplier} value={ingredientForm.supplier_name} onChange={e=>setIngredientForm({...ingredientForm,supplier_name:e.target.value})}/>
+          <button className="pay">{tr.create}</button>
+        </form> : <form className="smart-recurring-form" onSubmit={submitMovement}>
           <select required value={form.ingredient_id} onChange={e=>setForm({...form,ingredient_id:e.target.value})}><option value="">{tr.ingredient}</option>{(data.ingredients||[]).map(i=><option key={i.id} value={i.id}>{i.name} · {i.stock_quantity} {i.unit}</option>)}</select>
           <input required type="number" min="0.001" step="0.001" placeholder={`${tr.quantity}${selected ? ` (${selected.unit})` : ''}`} value={form.quantity} onChange={e=>setForm({...form,quantity:e.target.value})}/>
           {mode==='purchase' && <><input required type="number" min="0" step="0.01" placeholder={tr.amount} value={form.total_amount} onChange={e=>setForm({...form,total_amount:e.target.value})}/><input placeholder={tr.supplier} value={form.supplier_name} onChange={e=>setForm({...form,supplier_name:e.target.value})}/><input placeholder={tr.invoice} value={form.invoice_number} onChange={e=>setForm({...form,invoice_number:e.target.value})}/><select value={form.paid_by} onChange={e=>setForm({...form,paid_by:e.target.value})}><option value="bbva">BBVA</option><option value="saeid">Saeid</option><option value="ahmed">Ahmed</option></select></>}
           <textarea placeholder={tr.notes} value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
           <button className="pay">{tr.save}</button>
-        </form>
+        </form>}
       </article>
       <article className="admin-card"><h2>{tr.suggested}</h2><div className="smart-stock-list">{(data.suggested_purchase_list||[]).length ? data.suggested_purchase_list.map(i=><div className={`smart-stock-row ${i.status}`} key={i.id}><b>{i.name}</b><span>+{i.suggested_purchase_quantity} {i.unit}</span><small>{tr.stockNow}: {i.stock_quantity} · {tr.days}: {i.estimated_days_left ?? '—'}</small></div>) : <p className="muted">✓ {tr.ok}</p>}</div></article>
     </section>
@@ -3674,7 +3711,6 @@ function RealInventoryPanel({ expenseCategories = [] }) {
     <section className="admin-card"><h2>{tr.movements}</h2><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{tr.ingredient}</th><th>{tr.type}</th><th>{tr.delta}</th><th>€</th><th>Fecha</th><th>{tr.notes}</th></tr></thead><tbody>{(data.recent_movements||[]).map(row=><tr key={row.id}><td>{row.ingredient_name}</td><td>{row.movement_type}</td><td>{row.quantity_delta} {row.unit}</td><td>{money(row.total_cost)}</td><td>{row.occurred_at ? new Date(row.occurred_at).toLocaleString() : ''}</td><td>{row.notes||row.reference}</td></tr>)}</tbody></table></div></section>
   </section>;
 }
-
 
 function ProfitIntelligencePanel() {
   const lang = useGlobalAdminLanguage(); const setLang = changeAdminUiLanguage;
