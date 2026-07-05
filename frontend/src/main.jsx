@@ -3629,6 +3629,7 @@ function RealInventoryPanel({ expenseCategories = [] }) {
   const [mode, setMode] = useState('purchase');
   const [form, setForm] = useState({ ingredient_id: '', quantity: '', counted_quantity: '', unit_cost: '', iva_percent: '10', supplier_name: '', invoice_number: '', paid_by: 'bbva', payment_method: 'bbva', notes: '' });
   const [ingredientForm, setIngredientForm] = useState({ name:'', unit:'kg', unit_cost:'', stock_quantity:'0', reorder_level:'', supplier_name:'' });
+  const [drinkForm, setDrinkForm] = useState({ ingredient_id:'', fridge_stock:'', fridge_alert_level:'2', total_alert_level:'8', transfer_quantity:'', notes:'' });
   const tr = {
     es: { title:'Compras e Inventario Real', sub:'Crea materias primas, registra compras, mermas y corrige el stock contado por el administrador.', refresh:'Actualizar', addIngredient:'Añadir materia prima', purchase:'Registrar compra', waste:'Registrar merma', adjust:'Corregir stock', stock:'Stock real', suggested:'Lista de compra sugerida (7 días)', movements:'Movimientos recientes', ingredient:'Ingrediente', ingredientName:'Nombre de la materia prima', unit:'Unidad', unitCost:'Coste por unidad (€)', initialStock:'Stock inicial', minimumStock:'Stock mínimo / alerta', quantity:'Cantidad', counted:'Stock real contado', current:'Stock actual del sistema', difference:'Diferencia que se registrará', amount:'Importe total (€)', subtotal:'Base sin IVA', ivaRate:'IVA (%)', ivaAmount:'Importe IVA', totalWithIva:'Total con IVA', ivaHint:'El total se calcula automáticamente a partir de cantidad, coste unitario e IVA.', supplier:'Proveedor', invoice:'Factura', notes:'Motivo / notas', save:'Guardar', create:'Crear materia prima', days:'Días', use:'Consumo/día', noData:'No hay ingredientes configurados.', purchaseDone:'Compra registrada y gasto añadido a Contabilidad.', wasteDone:'Merma registrada.', adjustmentDone:'Stock corregido y movimiento de ajuste guardado.', ingredientDone:'Materia prima creada. Ya puedes registrar su compra.', type:'Tipo', delta:'Cambio', stockNow:'Stock actual', danger:'Urgente', low:'Bajo', ok:'Correcto', needName:'Escribe el nombre de la materia prima.', selectIngredient:'Selecciona una materia prima.', noChange:'El stock contado es igual al stock actual; no hay nada que corregir.', adjustmentHelp:'Usa esta opción después de contar físicamente el almacén. No registra un gasto ni una compra.' },
     fa: { title:'خرید و انبار واقعی', sub:'ماده اولیه بسازید، خرید و ضایعات را ثبت کنید و موجودی شمارش‌شده را توسط مدیر اصلاح کنید.', refresh:'به‌روزرسانی', addIngredient:'افزودن ماده اولیه', purchase:'ثبت خرید', waste:'ثبت ضایعات', adjust:'اصلاح موجودی', stock:'موجودی واقعی', suggested:'لیست خرید پیشنهادی (۷ روز)', movements:'گردش‌های اخیر', ingredient:'ماده اولیه', ingredientName:'نام ماده اولیه', unit:'واحد', unitCost:'هزینه هر واحد (€)', initialStock:'موجودی اولیه', minimumStock:'حداقل موجودی / هشدار', quantity:'مقدار', counted:'موجودی واقعی شمارش‌شده', current:'موجودی فعلی سیستم', difference:'اختلافی که ثبت می‌شود', amount:'مبلغ کل (€)', subtotal:'مبلغ بدون IVA', ivaRate:'درصد IVA', ivaAmount:'مبلغ IVA', totalWithIva:'مبلغ نهایی با IVA', ivaHint:'مبلغ نهایی با مقدار، هزینه واحد و IVA به‌صورت خودکار محاسبه می‌شود.', supplier:'تأمین‌کننده', invoice:'شماره فاکتور', notes:'علت / توضیحات', save:'ذخیره', create:'ساخت ماده اولیه', days:'روز', use:'مصرف/روز', noData:'ماده اولیه‌ای تعریف نشده است.', purchaseDone:'خرید ثبت و هزینه آن به حسابداری اضافه شد.', wasteDone:'ضایعات ثبت شد.', adjustmentDone:'موجودی اصلاح و گردش اصلاح ثبت شد.', ingredientDone:'ماده اولیه ساخته شد؛ اکنون می‌توانید خرید آن را ثبت کنید.', type:'نوع', delta:'تغییر', stockNow:'موجودی فعلی', danger:'فوری', low:'کم', ok:'مناسب', needName:'نام ماده اولیه را وارد کنید.', selectIngredient:'یک ماده اولیه انتخاب کنید.', noChange:'موجودی شمارش‌شده با موجودی فعلی برابر است و نیازی به اصلاح نیست.', adjustmentHelp:'پس از شمارش واقعی انبار از این گزینه استفاده کنید. این عملیات خرید یا هزینه مالی ثبت نمی‌کند.' },
@@ -3687,6 +3688,37 @@ function RealInventoryPanel({ expenseCategories = [] }) {
     } catch (err) { window.alert(err?.response?.data?.detail || 'No se pudo crear la materia prima.'); }
   };
 
+  const drinks = data.beverages || [];
+  const drinkSelected = drinks.find(x => String(x.id) === String(drinkForm.ingredient_id)) || (data.ingredients || []).find(x => String(x.id) === String(drinkForm.ingredient_id));
+
+  const configureDrink = async e => {
+    e.preventDefault();
+    if (!drinkForm.ingredient_id) return window.alert(language === 'fa' ? 'نوشیدنی را انتخاب کنید.' : 'Selecciona una bebida.');
+    try {
+      await axios.post(`${API_BASE}/admin/inventory/adjustment/`, {
+        action:'configure_beverage', ingredient_id:drinkForm.ingredient_id, is_beverage:true,
+        fridge_stock:drinkForm.fridge_stock || 0, fridge_alert_level:drinkForm.fridge_alert_level || 2,
+        total_alert_level:drinkForm.total_alert_level || 8, notes:drinkForm.notes,
+      });
+      window.alert(language === 'fa' ? 'نوشیدنی و هشدارهای آن ذخیره شد.' : 'Bebida y alertas guardadas.');
+      await load();
+    } catch (err) { window.alert(err?.response?.data?.detail || 'No se pudo configurar la bebida.'); }
+  };
+
+  const transferDrink = async e => {
+    e.preventDefault();
+    if (!drinkForm.ingredient_id || Number(drinkForm.transfer_quantity || 0) <= 0) return window.alert(language === 'fa' ? 'نوشیدنی و تعداد انتقال را وارد کنید.' : 'Selecciona bebida e indica la cantidad.');
+    try {
+      await axios.post(`${API_BASE}/admin/inventory/adjustment/`, {
+        action:'transfer_to_fridge', ingredient_id:drinkForm.ingredient_id,
+        quantity:drinkForm.transfer_quantity, notes:drinkForm.notes,
+      });
+      window.alert(language === 'fa' ? 'نوشیدنی به یخچال منتقل شد.' : 'Bebida trasladada a la nevera.');
+      setDrinkForm(current => ({...current, transfer_quantity:'', notes:''}));
+      await load();
+    } catch (err) { window.alert(err?.response?.data?.detail || 'No se pudo trasladar la bebida.'); }
+  };
+
   return <section className={`real-inventory-page lang-${language}`} dir={language === 'es' ? 'ltr' : 'rtl'}>
     <section className="admin-card real-inventory-head"><div><span className="admin-kicker">GESTIÓN DIARIA</span><h2>{tr.title}</h2><p>{tr.sub}</p></div><div className="real-inventory-actions"><button className="smart-primary" onClick={load} disabled={loading}>{loading?'...':tr.refresh}</button></div></section>
     <section className="real-inventory-grid">
@@ -3717,6 +3749,30 @@ function RealInventoryPanel({ expenseCategories = [] }) {
       <article className="admin-card"><h2>{tr.suggested}</h2><div className="smart-stock-list">{(data.suggested_purchase_list||[]).length ? data.suggested_purchase_list.map(i=><div className={`smart-stock-row ${i.status}`} key={i.id}><b>{i.name}</b><span>+{i.suggested_purchase_quantity} {i.unit}</span><small>{tr.stockNow}: {i.stock_quantity} · {tr.days}: {i.estimated_days_left ?? '—'}</small></div>) : <p className="muted">✓ {tr.ok}</p>}</div></article>
     </section>
     <section className="admin-card"><h2>{tr.stock}</h2><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{tr.ingredient}</th><th>{tr.stockNow}</th><th>{tr.use}</th><th>{tr.days}</th><th>€/u</th><th>Estado</th></tr></thead><tbody>{(data.ingredients||[]).map(i=><tr key={i.id}><td>{i.name}</td><td>{i.stock_quantity} {i.unit}</td><td>{i.average_daily_usage}</td><td>{i.estimated_days_left ?? '—'}</td><td>{money(i.unit_cost)}</td><td><span className={`inventory-status ${i.status}`}>{i.status==='urgent'?tr.danger:i.status==='low'?tr.low:tr.ok}</span></td></tr>)}{!(data.ingredients||[]).length&&<tr><td colSpan="6" className="muted">{tr.noData}</td></tr>}</tbody></table></div></section>
+    <section className="admin-card beverage-inventory-panel">
+      <div className="beverage-panel-head"><div><span className="admin-kicker">BEBIDAS</span><h2>{language === 'fa' ? 'مدیریت نوشیدنی و یخچال' : language === 'ar' ? 'إدارة المشروبات والثلاجة' : 'Gestión de bebidas y nevera'}</h2><p>{language === 'fa' ? 'فروش سفارش تحویل‌شده، ابتدا از یخچال کم می‌شود. موجودی کل = یخچال + بیرون یخچال.' : 'Cada venta entregada descuenta la bebida de la nevera. Stock total = nevera + fuera de nevera.'}</p></div></div>
+      {(data.beverage_alerts || []).length > 0 && <div className="beverage-alerts">{data.beverage_alerts.map((item,index)=><div className={`beverage-alert ${item.alert_type}`} key={`${item.id}-${item.alert_type}-${index}`}>{item.alert_type === 'fridge_low' ? <>⚠ {item.name}: {language === 'fa' ? 'موجودی یخچال' : 'Stock nevera'} {item.fridge_stock} {item.unit} {language === 'fa' ? 'است؛ یخچال را شارژ کنید.' : ' — recarga la nevera.'}</> : <>⚠ {item.name}: {language === 'fa' ? 'موجودی کل فقط' : 'Stock total'} {item.stock_quantity} {item.unit} {language === 'fa' ? 'است؛ خرید جدید لازم است.' : ' — hace falta comprar.'}</>}</div>)}</div>}
+      <div className="beverage-grid">
+        <form className="smart-recurring-form beverage-form" onSubmit={configureDrink}>
+          <h3>{language === 'fa' ? 'تعریف یا تنظیم نوشیدنی' : 'Configurar bebida'}</h3>
+          <select required value={drinkForm.ingredient_id} onChange={e=>{const id=e.target.value; const item=(data.ingredients||[]).find(x=>String(x.id)===String(id)); setDrinkForm({...drinkForm, ingredient_id:id, fridge_stock:item ? String(item.fridge_stock || 0) : '', fridge_alert_level:item ? String(item.fridge_alert_level ?? 2) : '2', total_alert_level:item ? String(item.total_alert_level ?? 8) : '8'});}}><option value="">{language === 'fa' ? 'انتخاب ماده اولیه نوشیدنی' : 'Seleccionar ingrediente de bebida'}</option>{(data.ingredients||[]).filter(i=>i.unit==='unit' || i.is_beverage).map(i=><option key={i.id} value={i.id}>{i.name} · {i.stock_quantity} {i.unit}</option>)}</select>
+          <input required type="number" min="0" step="1" placeholder={language === 'fa' ? 'تعداد داخل یخچال' : 'Unidades dentro de nevera'} value={drinkForm.fridge_stock} onChange={e=>setDrinkForm({...drinkForm,fridge_stock:e.target.value})}/>
+          <input type="number" min="0" step="1" placeholder={language === 'fa' ? 'هشدار یخچال (پیش‌فرض ۲)' : 'Alerta nevera (por defecto 2)'} value={drinkForm.fridge_alert_level} onChange={e=>setDrinkForm({...drinkForm,fridge_alert_level:e.target.value})}/>
+          <input type="number" min="0" step="1" placeholder={language === 'fa' ? 'هشدار کل (پیش‌فرض ۸)' : 'Alerta total (por defecto 8)'} value={drinkForm.total_alert_level} onChange={e=>setDrinkForm({...drinkForm,total_alert_level:e.target.value})}/>
+          <button className="pay">{language === 'fa' ? 'ذخیره تنظیم نوشیدنی' : 'Guardar bebida'}</button>
+        </form>
+        <form className="smart-recurring-form beverage-form" onSubmit={transferDrink}>
+          <h3>{language === 'fa' ? 'انتقال از بیرون به یخچال' : 'Pasar de fuera a nevera'}</h3>
+          <select required value={drinkForm.ingredient_id} onChange={e=>{const id=e.target.value; const item=drinks.find(x=>String(x.id)===String(id)); setDrinkForm({...drinkForm, ingredient_id:id, fridge_stock:item ? String(item.fridge_stock || 0) : drinkForm.fridge_stock, fridge_alert_level:item ? String(item.fridge_alert_level ?? 2) : drinkForm.fridge_alert_level, total_alert_level:item ? String(item.total_alert_level ?? 8) : drinkForm.total_alert_level});}}><option value="">{language === 'fa' ? 'انتخاب نوشیدنی' : 'Seleccionar bebida'}</option>{drinks.map(i=><option key={i.id} value={i.id}>{i.name} · {i.fridge_stock} en nevera / {i.outside_stock} fuera</option>)}</select>
+          {drinkSelected && <div className="beverage-location-summary"><span>{language === 'fa' ? 'یخچال' : 'Nevera'}: <b>{drinkSelected.fridge_stock} {drinkSelected.unit}</b></span><span>{language === 'fa' ? 'بیرون' : 'Fuera'}: <b>{drinkSelected.outside_stock} {drinkSelected.unit}</b></span><span>{language === 'fa' ? 'کل' : 'Total'}: <b>{drinkSelected.stock_quantity} {drinkSelected.unit}</b></span></div>}
+          <input required type="number" min="1" step="1" placeholder={language === 'fa' ? 'تعداد انتقال به یخچال' : 'Cantidad a pasar a nevera'} value={drinkForm.transfer_quantity} onChange={e=>setDrinkForm({...drinkForm,transfer_quantity:e.target.value})}/>
+          <textarea placeholder={tr.notes} value={drinkForm.notes} onChange={e=>setDrinkForm({...drinkForm,notes:e.target.value})}/>
+          <button className="pay">{language === 'fa' ? 'انتقال به یخچال' : 'Trasladar a nevera'}</button>
+        </form>
+      </div>
+      <div className="admin-table-wrap"><table className="admin-table beverage-table"><thead><tr><th>{language === 'fa' ? 'نوشیدنی' : 'Bebida'}</th><th>{language === 'fa' ? 'کل' : 'Total'}</th><th>{language === 'fa' ? 'یخچال' : 'Nevera'}</th><th>{language === 'fa' ? 'بیرون یخچال' : 'Fuera'}</th><th>{language === 'fa' ? 'هشدارها' : 'Alertas'}</th></tr></thead><tbody>{drinks.map(item=><tr key={item.id}><td><b>{item.name}</b></td><td>{item.stock_quantity} {item.unit}</td><td className={item.fridge_stock <= item.fridge_alert_level ? 'stock-danger' : ''}>{item.fridge_stock} {item.unit}</td><td>{item.outside_stock} {item.unit}</td><td>{item.fridge_stock <= item.fridge_alert_level && <span className="inventory-status urgent">{language === 'fa' ? 'یخچال ≤ ' : 'Nevera ≤ '}{item.fridge_alert_level}</span>} {item.stock_quantity < item.total_alert_level && <span className="inventory-status urgent">{language === 'fa' ? 'کل < ' : 'Total < '}{item.total_alert_level}</span>}</td></tr>)}{!drinks.length && <tr><td colSpan="5" className="muted">{language === 'fa' ? 'هنوز نوشیدنی تعریف نشده است. یک ماده اولیه با واحد «unidad» بسازید و در فرم بالا آن را نوشیدنی کنید.' : 'Todavía no hay bebidas. Crea un ingrediente con unidad “unidad” y configúralo arriba como bebida.'}</td></tr>}</tbody></table></div>
+    </section>
+
     <section className="admin-card"><h2>{tr.movements}</h2><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{tr.ingredient}</th><th>{tr.type}</th><th>{tr.delta}</th><th>€</th><th>Fecha</th><th>{tr.notes}</th></tr></thead><tbody>{(data.recent_movements||[]).map(row=><tr key={row.id}><td>{row.ingredient_name}</td><td>{row.movement_type}</td><td>{row.quantity_delta} {row.unit}</td><td>{money(row.total_cost)}</td><td>{row.occurred_at ? new Date(row.occurred_at).toLocaleString() : ''}</td><td>{row.notes||row.reference}</td></tr>)}</tbody></table></div></section>
   </section>;
 }

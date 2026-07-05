@@ -3686,11 +3686,11 @@ def _inventory_apply_movement(*, ingredient_id, movement_type, quantity_delta, u
 
 
 def consume_inventory_for_order(order):
-    """Deduct recipe components only once, when an order reaches Delivered."""
-    from .models import ProductCostProfile, InventoryMovement
+    """Deduct recipe components once at delivery. Drinks are deducted from fridge stock."""
+    from .models import ProductCostProfile, InventoryMovement, Ingredient
 
     if order.status != Order.STATUS_DELIVERED:
-        return {'created': 0, 'skipped': 0}
+        return {'created': 0, 'skipped': 0, 'fridge_alerts': []}
 
     order_items = order.items.select_related('menu_item').all()
     profiles = {
@@ -3701,6 +3701,7 @@ def consume_inventory_for_order(order):
     }
     created = 0
     skipped = 0
+    fridge_alerts = []
     for order_item in order_items:
         profile = profiles.get(order_item.menu_item_id)
         if not profile:
@@ -3709,7 +3710,7 @@ def consume_inventory_for_order(order):
             quantity = _inventory_decimal(component.quantity) * _inventory_decimal(order_item.quantity)
             if quantity <= 0:
                 continue
-            _, was_created = _inventory_apply_movement(
+            movement, was_created = _inventory_apply_movement(
                 ingredient_id=component.ingredient_id,
                 movement_type=InventoryMovement.TYPE_SALE,
                 quantity_delta=-quantity,
@@ -3723,10 +3724,31 @@ def consume_inventory_for_order(order):
             )
             if was_created:
                 created += 1
+                # A beverage is one Ingredient with two locations. A delivered sale
+                # always consumes from the fridge; global stock is already reduced above.
+                ingredient = Ingredient.objects.select_for_update().get(id=component.ingredient_id)
+                if ingredient.is_beverage:
+                    before = _inventory_decimal(ingredient.fridge_stock)
+                    fridge_after = max(Decimal('0.00'), before - quantity)
+                    ingredient.fridge_stock = fridge_after
+                    ingredient.save(update_fields=['fridge_stock', 'updated_at'])
+                    if fridge_after <= _inventory_decimal(ingredient.fridge_alert_level):
+                        fridge_alerts.append({
+                            'ingredient_id': ingredient.id,
+                            'name': ingredient.name,
+                            'fridge_stock': float(fridge_after),
+                            'level': 'fridge_low',
+                        })
+                    if _inventory_decimal(ingredient.stock_quantity) < _inventory_decimal(ingredient.total_alert_level):
+                        fridge_alerts.append({
+                            'ingredient_id': ingredient.id,
+                            'name': ingredient.name,
+                            'stock_quantity': float(ingredient.stock_quantity),
+                            'level': 'total_low',
+                        })
             else:
                 skipped += 1
-    return {'created': created, 'skipped': skipped}
-
+    return {'created': created, 'skipped': skipped, 'fridge_alerts': fridge_alerts}
 
 @api_view(['GET'])
 @admin_token_required
@@ -3754,8 +3776,7 @@ def admin_inventory_real_overview(request):
                 _inventory_decimal(component.quantity) * sold / Decimal(days)
             )
 
-    ingredients = []
-    suggestions = []
+    ingredients, suggestions, beverages, beverage_alerts = [], [], [], []
     for ingredient in Ingredient.objects.filter(is_active=True).order_by('name'):
         stock = _inventory_decimal(ingredient.stock_quantity)
         average = daily_usage.get(ingredient.id, Decimal('0.00'))
@@ -3768,6 +3789,9 @@ def admin_inventory_real_overview(request):
             status_name = 'urgent'
         elif stock <= reorder:
             status_name = 'low'
+
+        fridge_stock = min(max(Decimal('0.00'), _inventory_decimal(ingredient.fridge_stock)), stock)
+        outside_stock = max(Decimal('0.00'), stock - fridge_stock)
         row = {
             'id': ingredient.id,
             'name': ingredient.name,
@@ -3776,6 +3800,11 @@ def admin_inventory_real_overview(request):
             'unit_cost': float(ingredient.unit_cost or 0),
             'reorder_level': float(reorder),
             'supplier_name': ingredient.supplier_name or '',
+            'is_beverage': bool(ingredient.is_beverage),
+            'fridge_stock': float(fridge_stock),
+            'outside_stock': float(outside_stock),
+            'fridge_alert_level': float(ingredient.fridge_alert_level),
+            'total_alert_level': float(ingredient.total_alert_level),
             'average_daily_usage': float(average.quantize(Decimal('0.001'))),
             'estimated_days_left': float(days_left.quantize(Decimal('0.1'))) if days_left is not None else None,
             'suggested_purchase_quantity': float(suggested_quantity.quantize(Decimal('0.001'))),
@@ -3784,15 +3813,22 @@ def admin_inventory_real_overview(request):
         ingredients.append(row)
         if suggested_quantity > 0:
             suggestions.append(row)
+        if ingredient.is_beverage:
+            beverages.append(row)
+            if fridge_stock <= _inventory_decimal(ingredient.fridge_alert_level):
+                beverage_alerts.append({**row, 'alert_type': 'fridge_low'})
+            if stock < _inventory_decimal(ingredient.total_alert_level):
+                beverage_alerts.append({**row, 'alert_type': 'total_low'})
 
     movements = InventoryMovement.objects.select_related('ingredient').order_by('-occurred_at', '-id')[:80]
     return Response({
         'days_window': days,
         'ingredients': ingredients,
         'suggested_purchase_list': suggestions,
+        'beverages': beverages,
+        'beverage_alerts': beverage_alerts,
         'recent_movements': [_inventory_movement_payload(row) for row in movements],
     })
-
 
 @api_view(['POST'])
 @admin_token_required
@@ -3912,11 +3948,54 @@ def admin_inventory_waste(request):
 @api_view(['POST'])
 @admin_token_required
 def admin_inventory_adjustment(request):
+    """Normal physical adjustment plus beverage configuration and fridge transfers."""
     from .models import Ingredient, InventoryMovement
 
     data = request.data or {}
     try:
-        ingredient = Ingredient.objects.get(id=int(data.get('ingredient_id')))
+        ingredient = Ingredient.objects.select_for_update().get(id=int(data.get('ingredient_id')))
+        action = str(data.get('action') or '').strip()
+
+        if action == 'configure_beverage':
+            is_beverage = bool(data.get('is_beverage', True))
+            fridge_stock = _inventory_decimal(data.get('fridge_stock') if data.get('fridge_stock') not in (None, '') else ingredient.fridge_stock)
+            fridge_level = _inventory_decimal(data.get('fridge_alert_level') if data.get('fridge_alert_level') not in (None, '') else '2')
+            total_level = _inventory_decimal(data.get('total_alert_level') if data.get('total_alert_level') not in (None, '') else '8')
+            if fridge_stock < 0 or fridge_stock > _inventory_decimal(ingredient.stock_quantity):
+                raise ValueError('El stock de nevera debe estar entre 0 y el stock total.')
+            if fridge_level < 0 or total_level < 0:
+                raise ValueError('Los niveles de alerta no pueden ser negativos.')
+            ingredient.is_beverage = is_beverage
+            ingredient.fridge_stock = fridge_stock if is_beverage else Decimal('0.00')
+            ingredient.fridge_alert_level = fridge_level
+            ingredient.total_alert_level = total_level
+            ingredient.save(update_fields=['is_beverage', 'fridge_stock', 'fridge_alert_level', 'total_alert_level', 'updated_at'])
+            return Response({'success': True, 'action': action, 'ingredient_id': ingredient.id})
+
+        if action == 'transfer_to_fridge':
+            if not ingredient.is_beverage:
+                raise ValueError('Primero configura este ingrediente como bebida.')
+            quantity = _inventory_decimal(data.get('quantity'))
+            if quantity <= 0:
+                raise ValueError('La cantidad a pasar a la nevera debe ser mayor que cero.')
+            outside = _inventory_decimal(ingredient.stock_quantity) - _inventory_decimal(ingredient.fridge_stock)
+            if quantity > outside:
+                raise ValueError('No hay suficientes bebidas fuera de la nevera para esta transferencia.')
+            _inventory_apply_movement(
+                ingredient_id=ingredient.id,
+                movement_type=InventoryMovement.TYPE_FRIDGE_TRANSFER,
+                quantity_delta=Decimal('0.00'),
+                unit_cost_snapshot=ingredient.unit_cost,
+                total_cost=Decimal('0.00'),
+                reference='Traslado al frigorífico',
+                notes=str(data.get('notes') or '').strip(),
+                username=request.admin_user.get_username(),
+            )
+            ingredient.refresh_from_db()
+            ingredient.fridge_stock = _inventory_decimal(ingredient.fridge_stock) + quantity
+            ingredient.save(update_fields=['fridge_stock', 'updated_at'])
+            return Response({'success': True, 'action': action, 'ingredient_id': ingredient.id, 'fridge_stock': float(ingredient.fridge_stock)})
+
         delta = _inventory_decimal(data.get('quantity_delta'))
         if delta == 0:
             raise ValueError('El ajuste no puede ser cero.')
@@ -3930,6 +4009,10 @@ def admin_inventory_adjustment(request):
             notes=str(data.get('notes') or '').strip(),
             username=request.admin_user.get_username(),
         )
+        ingredient.refresh_from_db()
+        if ingredient.is_beverage and _inventory_decimal(ingredient.fridge_stock) > _inventory_decimal(ingredient.stock_quantity):
+            ingredient.fridge_stock = _inventory_decimal(ingredient.stock_quantity)
+            ingredient.save(update_fields=['fridge_stock', 'updated_at'])
     except (ValueError, TypeError, Ingredient.DoesNotExist) as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     return Response({'success': True, 'movement': _inventory_movement_payload(movement)}, status=status.HTTP_201_CREATED)

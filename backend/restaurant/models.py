@@ -1376,6 +1376,11 @@ class Ingredient(models.Model):
     stock_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     reorder_level = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     supplier_name = models.CharField(max_length=160, blank=True, default='')
+    # Beverage stock is split into fridge and outside-fridge locations.
+    is_beverage = models.BooleanField(default=False, db_index=True)
+    fridge_stock = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    fridge_alert_level = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('2.00'))
+    total_alert_level = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('8.00'))
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1484,11 +1489,13 @@ class InventoryMovement(models.Model):
     TYPE_SALE = 'sale'
     TYPE_WASTE = 'waste'
     TYPE_ADJUSTMENT = 'adjustment'
+    TYPE_FRIDGE_TRANSFER = 'fridge_transfer'
     TYPE_CHOICES = [
         (TYPE_PURCHASE, 'Compra'),
         (TYPE_SALE, 'Consumo por venta'),
         (TYPE_WASTE, 'Merma / desperdicio'),
         (TYPE_ADJUSTMENT, 'Ajuste manual'),
+        (TYPE_FRIDGE_TRANSFER, 'Traslado al frigorífico'),
     ]
 
     ingredient = models.ForeignKey(Ingredient, on_delete=models.PROTECT, related_name='inventory_movements')

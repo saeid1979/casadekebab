@@ -3120,3 +3120,17 @@ html[data-admin-language="ar"] .admin-pro-page select{text-align:right}
 .accounting-summary-grid .income-card{border-color:#b9dcc5;background:#f3fff6}
 .accounting-summary-grid .manual-result-card{border-color:#b8d4e7;background:#f3faff}
 
+
+/* v42 beverage fridge inventory */
+.beverage-inventory-panel{display:grid;gap:15px}
+.beverage-panel-head h2{margin:4px 0}.beverage-panel-head p{margin:0;color:#65544b}
+.beverage-alerts{display:grid;gap:8px}.beverage-alert{padding:11px 13px;border-radius:10px;font-weight:700}
+.beverage-alert.fridge_low{background:#fff2d9;color:#805000;border:1px solid #f1ca7a}
+.beverage-alert.total_low{background:#fde8e6;color:#981d16;border:1px solid #efaaa5}
+.beverage-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+.beverage-form{border:1px solid #eadfd6;border-radius:13px;padding:14px;background:#fffcfa}
+.beverage-form h3{margin:0 0 10px;font-size:16px}
+.beverage-location-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#f4f7ff;padding:10px;border-radius:10px;font-size:13px}
+.beverage-location-summary span{display:grid;gap:3px}.stock-danger{color:#a1281d;font-weight:900}
+.beverage-table .inventory-status{margin:2px}@media(max-width:760px){.beverage-grid{grid-template-columns:1fr}.beverage-location-summary{grid-template-columns:1fr}}
+
