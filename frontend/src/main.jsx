@@ -1442,10 +1442,14 @@ function App() {
       };
 
       const res = await axios.post(`${API_BASE}/orders/`, payload);
-      const orderCode = res.data.order.order_code;
+      const orderCode = res.data?.order?.order_code;
       setCart([]);
       setCheckoutOpen(false);
-      window.location.href = `/receipt/${orderCode}`;
+      if (!orderCode) {
+        setMessage('Pedido registrado, pero el servidor no devolvió código de ticket. Actualiza pedidos vivos y abre el ticket desde Admin.');
+        return;
+      }
+      window.location.href = `/receipt/${encodeURIComponent(orderCode)}`;
     } catch (err) {
       console.error('ORDER_CREATE_ERROR', err?.response?.data || err);
 
@@ -5570,10 +5574,11 @@ function ReceiptApp() {
       <p>{RESTAURANT_ADDRESS}</p>
       <hr />
       <h2>{order.order_code}</h2>
-      <p><b>Cliente:</b> {order.customer_name || 'Sin nombre'}</p>
-      <p><b>Tel:</b> {order.customer_phone}</p>
+      <p><b>Cliente:</b> {order.customer_name || (order.delivery_type === 'collection' ? 'Cliente mostrador' : 'Sin nombre')}</p>
+      {order.customer_phone && <p><b>Tel:</b> {order.customer_phone}</p>}
       <p><b>Tipo:</b> {order.delivery_type === 'delivery' ? 'Entrega a domicilio' : 'Recoger en tienda'}</p>
-      {order.address && <p><b>Dirección:</b> {order.address}</p>}
+      {order.delivery_type === 'delivery' && order.address && <p><b>Dirección de entrega:</b> {order.address}</p>}
+      {order.delivery_type === 'collection' && <p><b>Recogida en local:</b> {RESTAURANT_ADDRESS}</p>}
       <p><b>Fecha:</b> {new Date(order.created_at).toLocaleString()}</p>
       <hr />
       {(order.items || []).map(item => <div className="receipt-line" key={item.id}><span>{item.quantity} x {item.name_snapshot}</span><b>{money(item.total)}</b></div>)}
@@ -5592,7 +5597,9 @@ function ReceiptApp() {
             ? 'El banco ha confirmado el pago correctamente.'
             : 'Tu pedido ha sido confirmado correctamente.'}
         </p>
-        <p><b>En un máximo de 20 minutos tu pedido llegará a la dirección indicada.</b></p>
+        {order.delivery_type === 'delivery'
+          ? <p><b>En un máximo de 20 minutos tu pedido llegará a la dirección indicada.</b></p>
+          : <p><b>Tu pedido estará preparado para recoger en el local.</b></p>}
         <p>Gracias por pedir tu comida en Casa de Kebab Turco.</p>
       </div>
 

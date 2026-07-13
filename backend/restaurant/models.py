@@ -637,54 +637,86 @@ class Order(models.Model):
 
 
 
+
     class Meta:
 
         ordering = ['-created_at']
 
 
 
-def save(self, *args, **kwargs):
-    if not self.order_code:
-        last_order = (
-            Order.objects
-            .exclude(order_code='')
-            .order_by('-id')
-            .first()
+    def save(self, *args, **kwargs):
+
+        if not self.order_code:
+
+            last_order = (
+
+                Order.objects
+
+                .exclude(order_code='')
+
+                .order_by('-id')
+
+                .first()
+
+            )
+
+
+
+            next_num = 1
+
+
+
+            if last_order and last_order.order_code:
+
+                try:
+
+                    current_num = int(
+
+                        last_order.order_code.split('-')[-1]
+
+                    )
+
+                    next_num = current_num + 1
+
+                except (ValueError, IndexError):
+
+                    next_num = last_order.id + 1
+
+
+
+            while Order.objects.filter(
+
+                order_code=f'CDKT-{next_num:06d}'
+
+            ).exists():
+
+                next_num += 1
+
+
+
+            self.order_code = f'CDKT-{next_num:06d}'
+
+
+
+        self.total = (
+
+            (self.subtotal or Decimal('0.00'))
+
+            + (self.delivery_fee or Decimal('0.00'))
+
+            - (self.discount or Decimal('0.00'))
+
         )
 
-        next_num = 1
 
-        if last_order and last_order.order_code:
-            try:
-                current_num = int(
-                    last_order.order_code.split('-')[-1]
-                )
-                next_num = current_num + 1
-            except (ValueError, IndexError):
-                next_num = last_order.id + 1
 
-        while Order.objects.filter(
-            order_code=f'CDKT-{next_num:06d}'
-        ).exists():
-            next_num += 1
-
-        self.order_code = f'CDKT-{next_num:06d}'
-
-    self.total = (
-        (self.subtotal or Decimal('0.00'))
-        + (self.delivery_fee or Decimal('0.00'))
-        - (self.discount or Decimal('0.00'))
-    )
-
-    super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
 
 
     def __str__(self):
 
         return self.order_code
-
-
 
 
 
