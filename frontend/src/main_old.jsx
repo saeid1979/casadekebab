@@ -811,37 +811,6 @@ function CustomerBestProducts({
   </section>;
 }
 
-
-function DeveloperFooter() {
-  return (
-    <footer className="developer-footer" aria-label="Información del desarrollador">
-      <div className="developer-footer-inner">
-        <div className="developer-footer-copy">
-          <span className="developer-footer-label">Diseño y desarrollo del sitio web</span>
-          <a
-            className="developer-name"
-            href="https://saeidjavid.netlify.app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Saeid Javid
-          </a>
-          <span className="developer-role">Full Stack Developer · Python · Django · React · AI</span>
-        </div>
-        <a
-          className="developer-link"
-          href="https://saeidjavid.netlify.app"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Ver el portfolio de Saeid Javid en una pestaña nueva"
-        >
-          Ver portfolio <span aria-hidden="true">→</span>
-        </a>
-      </div>
-    </footer>
-  );
-}
-
 function App() {
   usePageChrome();
   const [menu, setMenu] = useState(fallbackMenu);
@@ -1744,7 +1713,6 @@ function App() {
       </button>
     </Modal>}
     <CustomerSmartAssistant menu={menu} cart={cart} onOpenProduct={setActiveItem} />
-    <DeveloperFooter />
   </div>;
 }
 
