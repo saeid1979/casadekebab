@@ -19,7 +19,7 @@ from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup
+from .models import Category, MenuItem, Customer, PhoneVerificationCode, Order, Rider, RestaurantSettings, Coupon, Payment, SmsGatewayMessage, OrderChatMessage, OrderReview, CustomerPushDevice, ExpenseCategory, AccountingSettings, RestaurantFinancialEntry, SystemBackup, Ingredient
 from .serializers import CategoryWithItemsSerializer, SendPhoneCodeSerializer, VerifyPhoneCodeSerializer, CustomerSerializer, CreateOrderSerializer, OrderSerializer, RiderSerializer, CategoryAdminSerializer, MenuItemAdminSerializer, MenuItemSerializer, RestaurantSettingsSerializer, CouponSerializer, OrderChatMessageSerializer, OrderReviewSerializer, CustomerPushDeviceSerializer, ExpenseCategorySerializer, AccountingSettingsSerializer, RestaurantFinancialEntrySerializer, SystemBackupSerializer
 from .notifications import send_telegram_message, build_order_message, send_customer_order_sms, queue_sms
 from .push_notifications import send_order_status_push, send_payment_status_push, send_push_to_phone
@@ -590,6 +590,8 @@ def update_order_status(request, order_code):
     order.save(update_fields=['status', 'updated_at'])
     if old_status != new_status:
         transaction.on_commit(lambda: send_order_status_push(order))
+    if new_status == Order.STATUS_DELIVERED:
+        consume_inventory_for_order(order)
 
     # If the restaurant marks a delivery order as ready or out for delivery and
     # no rider is selected yet, automatically choose the freest active rider.
@@ -1636,6 +1638,24 @@ def _money_sum(queryset, field='amount'):
     return queryset.aggregate(value=Sum(field)).get('value') or Decimal('0.00')
 
 
+STANDARD_FINANCE_CATEGORIES = [
+    'Alquiler', 'Luz', 'Agua', 'Gas', 'Internet', 'Nóminas y personal',
+    'Publicidad', 'Reparaciones', 'Embalaje', 'Transporte',
+    'Comisión Glovo', 'Comisión Uber Eats', 'Comisión Just Eat',
+    'Gestor / contabilidad', 'Licencias e impuestos', 'Comisiones bancarias',
+    'Otros gastos', 'Ventas presenciales', 'Pedidos telefónicos',
+    'Ingresos Glovo', 'Ingresos Uber Eats', 'Ingresos Just Eat', 'Otros ingresos',
+]
+
+
+def _ensure_standard_finance_categories():
+    for index, name in enumerate(STANDARD_FINANCE_CATEGORIES, start=1):
+        ExpenseCategory.objects.get_or_create(
+            name=name,
+            defaults={'sort_order': index * 10, 'is_active': True},
+        )
+
+
 def _accounting_summary_payload():
     settings_obj = AccountingSettings.current()
     approved = RestaurantFinancialEntry.objects.filter(
@@ -1645,12 +1665,27 @@ def _accounting_summary_payload():
         ]
     )
     expenses = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+    incomes = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_INCOME)
     contributions = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_CONTRIBUTION)
     settlements = approved.filter(entry_type=RestaurantFinancialEntry.TYPE_SETTLEMENT)
 
     saeid_expenses = _money_sum(expenses.filter(paid_by=RestaurantFinancialEntry.PARTY_SAEID))
     ahmed_expenses = _money_sum(expenses.filter(paid_by=RestaurantFinancialEntry.PARTY_AHMED))
     bbva_expenses = _money_sum(expenses.filter(paid_by=RestaurantFinancialEntry.PARTY_BBVA))
+    cash_incomes = _money_sum(incomes.filter(payment_method=RestaurantFinancialEntry.PAYMENT_CASH))
+    card_incomes = _money_sum(
+        incomes.filter(payment_method__in=[
+            RestaurantFinancialEntry.PAYMENT_BBVA,
+            RestaurantFinancialEntry.PAYMENT_TRANSFER,
+            RestaurantFinancialEntry.PAYMENT_PERSONAL_CARD,
+        ])
+    )
+    bbva_incomes = _money_sum(
+        incomes.filter(payment_method__in=[
+            RestaurantFinancialEntry.PAYMENT_BBVA,
+            RestaurantFinancialEntry.PAYMENT_TRANSFER,
+        ])
+    )
 
     saeid_contributions = _money_sum(
         contributions.filter(contribution_from=RestaurantFinancialEntry.PARTY_SAEID)
@@ -1673,14 +1708,9 @@ def _accounting_summary_payload():
     )
 
     personal_total = saeid_expenses + ahmed_expenses
-    saeid_target = (
-        personal_total * settings_obj.saeid_share_percent / Decimal('100.00')
-    )
-    ahmed_target = (
-        personal_total * settings_obj.ahmed_share_percent / Decimal('100.00')
-    )
+    saeid_target = personal_total * settings_obj.saeid_share_percent / Decimal('100.00')
+    ahmed_target = personal_total * settings_obj.ahmed_share_percent / Decimal('100.00')
 
-    # Positive means Saeid should receive money; negative means Ahmed should receive.
     raw_saeid_credit = saeid_expenses - saeid_target
     settlement_net_to_saeid = settlements_ahmed_to_saeid - settlements_saeid_to_ahmed
     saeid_credit_after_settlement = raw_saeid_credit - settlement_net_to_saeid
@@ -1700,15 +1730,18 @@ def _accounting_summary_payload():
     else:
         settlement = {'debtor': '', 'creditor': '', 'amount': '0.00'}
 
+    # Only income actually entering BBVA/transfer affects this calculated bank balance.
     bbva_balance = (
         settings_obj.bbva_initial_balance
         + saeid_contributions
         + ahmed_contributions
+        + bbva_incomes
         - bbva_expenses
     )
 
     month_start = timezone.localdate().replace(day=1)
     month_expenses = _money_sum(expenses.filter(entry_date__gte=month_start))
+    month_incomes = _money_sum(incomes.filter(entry_date__gte=month_start))
 
     by_category = list(
         expenses.values('category__name')
@@ -1723,9 +1756,15 @@ def _accounting_summary_payload():
         'settings': AccountingSettingsSerializer(settings_obj).data,
         'total_expenses': str(_money_sum(expenses)),
         'month_expenses': str(month_expenses),
+        'total_manual_income': str(_money_sum(incomes)),
+        'month_manual_income': str(month_incomes),
+        'cash_manual_income': str(cash_incomes),
+        'card_manual_income': str(card_incomes),
+        'manual_operating_result': str((month_incomes - month_expenses).quantize(Decimal('0.01'))),
         'saeid_expenses': str(saeid_expenses),
         'ahmed_expenses': str(ahmed_expenses),
         'bbva_expenses': str(bbva_expenses),
+        'bbva_incomes': str(bbva_incomes),
         'saeid_contributions': str(saeid_contributions),
         'ahmed_contributions': str(ahmed_contributions),
         'bbva_balance': str(bbva_balance),
@@ -1735,7 +1774,6 @@ def _accounting_summary_payload():
         'settlement': settlement,
         'by_category': by_category,
     }
-
 
 @api_view(['GET'])
 @admin_token_required
@@ -1764,6 +1802,7 @@ def admin_accounting_settings(request):
 @admin_token_required
 def admin_expense_categories(request):
     if request.method == 'GET':
+        _ensure_standard_finance_categories()
         qs = ExpenseCategory.objects.all().order_by('sort_order', 'name')
         return Response(ExpenseCategorySerializer(qs, many=True).data)
 
@@ -2619,7 +2658,7 @@ def _profitability_profile_payload(profile):
 @api_view(['GET', 'POST'])
 @admin_token_required
 def admin_profitability_ingredients(request):
-    from .models import Ingredient
+    
 
     if request.method == 'GET':
         qs = Ingredient.objects.all().order_by('name')
@@ -2648,7 +2687,7 @@ def admin_profitability_ingredients(request):
 @api_view(['PATCH', 'DELETE'])
 @admin_token_required
 def admin_profitability_ingredient_detail(request, ingredient_id):
-    from .models import Ingredient
+    
 
     try:
         ingredient = Ingredient.objects.get(id=ingredient_id)
@@ -2680,7 +2719,7 @@ def admin_profitability_ingredient_detail(request, ingredient_id):
 @api_view(['GET', 'PUT'])
 @admin_token_required
 def admin_profitability_recipe(request, menu_item_id):
-    from .models import Ingredient, ProductCostProfile, RecipeIngredient
+    from .models import ProductCostProfile
 
     try:
         item = MenuItem.objects.get(id=menu_item_id)
@@ -2803,4 +2842,1926 @@ def admin_profitability_report(request):
             'estimated_gross_profit': float(sum(Decimal(str(row['estimated_gross_profit'])) for row in result)),
         },
     })
+
+@api_view(['GET'])
+def public_customer_menu_highlights(request):
+    """
+    Customer-facing menu highlights based on valid recent orders.
+    It only returns statistics and does not edit categories, prices, or menu data.
+    """
+    from datetime import timedelta
+    from django.db.models import Sum
+
+    try:
+        days = int(request.query_params.get('days', 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(7, min(days, 180))
+    start_date = timezone.localdate() - timedelta(days=days - 1)
+
+    rows = (
+        OrderItem.objects.filter(order__created_at__date__gte=start_date)
+        .exclude(order__status=Order.STATUS_CANCELLED)
+        .values('menu_item_id')
+        .annotate(units_sold=Sum('quantity'))
+    )
+    sales = {
+        str(row['menu_item_id']): int(row['units_sold'] or 0)
+        for row in rows
+        if row.get('menu_item_id')
+    }
+
+    available_items = MenuItem.objects.filter(is_active=True, is_available=True)
+    cheapest = available_items.order_by('price', 'sort_order', 'id').first()
+
+    top_seller_id = None
+    top_units = 0
+    for item_id, units in sales.items():
+        if units > top_units:
+            top_seller_id = item_id
+            top_units = units
+
+    # If no completed order exists yet, use the first active product as a safe fallback.
+    if not top_seller_id:
+        first_item = available_items.order_by('sort_order', 'id').first()
+        top_seller_id = str(first_item.id) if first_item else None
+
+    return Response({
+        'days': days,
+        'sales_by_item': sales,
+        'top_seller_id': top_seller_id,
+        'top_seller_units': top_units,
+        'lowest_price_item_id': str(cheapest.id) if cheapest else None,
+    })
+
+# ============================================================
+# Finance Reports v2 - Casa de Kebab Turco
+# Uses existing models only. No new database tables.
+# ============================================================
+
+from decimal import Decimal
+from django.db.models import Sum, Count
+from django.utils import timezone
+from django.utils.dateparse import parse_date
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAdminUser
+from rest_framework.response import Response
+
+from .models import (
+    Order,
+    OrderItem,
+    RestaurantFinancialEntry,
+    AccountingSettings,
+)
+
+
+def _finance_v2_money(value):
+    value = Decimal(str(value or "0.00"))
+    return str(value.quantize(Decimal("0.01")))
+
+
+def _finance_v2_date_range(request):
+    start = parse_date(request.GET.get("start", ""))
+    end = parse_date(request.GET.get("end", ""))
+    if not start or not end:
+        today = timezone.localdate()
+        start = today.replace(day=1)
+        end = today
+    return start, end
+
+
+def _finance_v2_orders_between(start, end):
+    return Order.objects.filter(
+        created_at__date__gte=start,
+        created_at__date__lte=end,
+    ).exclude(status=Order.STATUS_CANCELLED)
+
+
+def _finance_v2_entries_between(start, end):
+    return RestaurantFinancialEntry.objects.filter(
+        entry_date__gte=start,
+        entry_date__lte=end,
+        status=RestaurantFinancialEntry.STATUS_APPROVED,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def finance_profit_loss_v2(request):
+    start, end = _finance_v2_date_range(request)
+
+    orders = _finance_v2_orders_between(start, end)
+    entries = _finance_v2_entries_between(start, end)
+
+    revenue = orders.aggregate(s=Sum("total"))["s"] or Decimal("0.00")
+    subtotal = orders.aggregate(s=Sum("subtotal"))["s"] or Decimal("0.00")
+    delivery_fees = orders.aggregate(s=Sum("delivery_fee"))["s"] or Decimal("0.00")
+    discounts = orders.aggregate(s=Sum("discount"))["s"] or Decimal("0.00")
+
+    expenses = entries.filter(
+        entry_type=RestaurantFinancialEntry.TYPE_EXPENSE
+    ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
+
+    contributions = entries.filter(
+        entry_type=RestaurantFinancialEntry.TYPE_CONTRIBUTION
+    ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
+
+    settlements = entries.filter(
+        entry_type=RestaurantFinancialEntry.TYPE_SETTLEMENT
+    ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
+
+    net_profit = revenue - expenses
+    orders_count = orders.count()
+    avg_order_value = revenue / orders_count if orders_count else Decimal("0.00")
+
+    by_payment_method = list(
+        orders.values("payment_method")
+        .annotate(count=Count("id"), total=Sum("total"))
+        .order_by("-total")
+    )
+
+    by_delivery_type = list(
+        orders.values("delivery_type")
+        .annotate(count=Count("id"), total=Sum("total"))
+        .order_by("-total")
+    )
+
+    expense_by_category = list(
+        entries.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+        .values("category__name")
+        .annotate(count=Count("id"), total=Sum("amount"))
+        .order_by("-total")
+    )
+
+    expense_by_paid_by = list(
+        entries.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+        .values("paid_by")
+        .annotate(count=Count("id"), total=Sum("amount"))
+        .order_by("-total")
+    )
+
+    return Response({
+        "period": {"start": start, "end": end},
+        "summary": {
+            "revenue": _finance_v2_money(revenue),
+            "subtotal": _finance_v2_money(subtotal),
+            "delivery_fees": _finance_v2_money(delivery_fees),
+            "discounts": _finance_v2_money(discounts),
+            "expenses": _finance_v2_money(expenses),
+            "contributions_to_bbva": _finance_v2_money(contributions),
+            "settlements": _finance_v2_money(settlements),
+            "net_profit": _finance_v2_money(net_profit),
+            "orders_count": orders_count,
+            "average_order_value": _finance_v2_money(avg_order_value),
+        },
+        "orders_by_payment_method": [
+            {"payment_method": x["payment_method"], "count": x["count"], "total": _finance_v2_money(x["total"])}
+            for x in by_payment_method
+        ],
+        "orders_by_delivery_type": [
+            {"delivery_type": x["delivery_type"], "count": x["count"], "total": _finance_v2_money(x["total"])}
+            for x in by_delivery_type
+        ],
+        "expenses_by_category": [
+            {"category": x["category__name"] or "Sin categoría", "count": x["count"], "total": _finance_v2_money(x["total"])}
+            for x in expense_by_category
+        ],
+        "expenses_by_paid_by": [
+            {"paid_by": x["paid_by"], "count": x["count"], "total": _finance_v2_money(x["total"])}
+            for x in expense_by_paid_by
+        ],
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def finance_product_sales_v2(request):
+    start, end = _finance_v2_date_range(request)
+    orders = _finance_v2_orders_between(start, end)
+
+    rows = (
+        OrderItem.objects
+        .filter(order__in=orders)
+        .values("menu_item_id", "name_snapshot")
+        .annotate(quantity_sold=Sum("quantity"), revenue=Sum("total"))
+        .order_by("-revenue")
+    )
+
+    data = []
+    for row in rows:
+        revenue = row["revenue"] or Decimal("0.00")
+        qty = row["quantity_sold"] or 0
+        avg_price = revenue / Decimal(qty) if qty else Decimal("0.00")
+        data.append({
+            "menu_item_id": row["menu_item_id"],
+            "product": row["name_snapshot"],
+            "quantity_sold": qty,
+            "revenue": _finance_v2_money(revenue),
+            "average_price": _finance_v2_money(avg_price),
+        })
+
+    return Response({"period": {"start": start, "end": end}, "products": data})
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def finance_daily_report_v2(request):
+    start, end = _finance_v2_date_range(request)
+
+    orders_by_day = (
+        _finance_v2_orders_between(start, end)
+        .values("created_at__date")
+        .annotate(revenue=Sum("total"), orders_count=Count("id"))
+        .order_by("created_at__date")
+    )
+
+    expenses_by_day = (
+        _finance_v2_entries_between(start, end)
+        .filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+        .values("entry_date")
+        .annotate(expenses=Sum("amount"))
+        .order_by("entry_date")
+    )
+
+    result = {}
+
+    for x in orders_by_day:
+        d = str(x["created_at__date"])
+        result.setdefault(d, {"date": d, "revenue": Decimal("0.00"), "expenses": Decimal("0.00"), "orders_count": 0})
+        result[d]["revenue"] = x["revenue"] or Decimal("0.00")
+        result[d]["orders_count"] = x["orders_count"]
+
+    for x in expenses_by_day:
+        d = str(x["entry_date"])
+        result.setdefault(d, {"date": d, "revenue": Decimal("0.00"), "expenses": Decimal("0.00"), "orders_count": 0})
+        result[d]["expenses"] = x["expenses"] or Decimal("0.00")
+
+    rows = []
+    for d in sorted(result.keys()):
+        row = result[d]
+        net = row["revenue"] - row["expenses"]
+        rows.append({
+            "date": row["date"],
+            "revenue": _finance_v2_money(row["revenue"]),
+            "expenses": _finance_v2_money(row["expenses"]),
+            "net_profit": _finance_v2_money(net),
+            "orders_count": row["orders_count"],
+        })
+
+    return Response({"period": {"start": start, "end": end}, "days": rows})
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def finance_partner_summary_v2(request):
+    start, end = _finance_v2_date_range(request)
+    settings = AccountingSettings.current()
+    entries = _finance_v2_entries_between(start, end)
+
+    expenses_by_partner = {"saeid": Decimal("0.00"), "ahmed": Decimal("0.00"), "bbva": Decimal("0.00")}
+    for row in entries.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE).values("paid_by").annotate(total=Sum("amount")):
+        expenses_by_partner[row["paid_by"]] = row["total"] or Decimal("0.00")
+
+    contributions_by_partner = {"saeid": Decimal("0.00"), "ahmed": Decimal("0.00"), "bbva": Decimal("0.00")}
+    for row in entries.filter(entry_type=RestaurantFinancialEntry.TYPE_CONTRIBUTION).values("contribution_from").annotate(total=Sum("amount")):
+        if row["contribution_from"]:
+            contributions_by_partner[row["contribution_from"]] = row["total"] or Decimal("0.00")
+
+    total_expenses = sum(expenses_by_partner.values(), Decimal("0.00"))
+    saeid_expected = total_expenses * (settings.saeid_share_percent / Decimal("100"))
+    ahmed_expected = total_expenses * (settings.ahmed_share_percent / Decimal("100"))
+
+    return Response({
+        "period": {"start": start, "end": end},
+        "shares": {
+            "saeid_percent": _finance_v2_money(settings.saeid_share_percent),
+            "ahmed_percent": _finance_v2_money(settings.ahmed_share_percent),
+        },
+        "expenses_paid": {k: _finance_v2_money(v) for k, v in expenses_by_partner.items()},
+        "contributions_to_bbva": {k: _finance_v2_money(v) for k, v in contributions_by_partner.items()},
+        "expected_expense_share": {
+            "saeid": _finance_v2_money(saeid_expected),
+            "ahmed": _finance_v2_money(ahmed_expected),
+        },
+        "balance_hint": {
+            "saeid": _finance_v2_money(expenses_by_partner["saeid"] - saeid_expected),
+            "ahmed": _finance_v2_money(expenses_by_partner["ahmed"] - ahmed_expected),
+        }
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def finance_dashboard_v2(request):
+    today = timezone.localdate()
+    start = today.replace(day=1)
+    end = today
+
+    orders = _finance_v2_orders_between(start, end)
+    entries = _finance_v2_entries_between(start, end)
+
+    revenue = orders.aggregate(s=Sum("total"))["s"] or Decimal("0.00")
+    expenses = entries.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
+    net_profit = revenue - expenses
+
+    top_products = (
+        OrderItem.objects.filter(order__in=orders)
+        .values("name_snapshot")
+        .annotate(quantity_sold=Sum("quantity"), revenue=Sum("total"))
+        .order_by("-revenue")[:5]
+    )
+
+    latest_expenses = list(
+        entries.filter(entry_type=RestaurantFinancialEntry.TYPE_EXPENSE)
+        .order_by("-entry_date", "-created_at")
+        .values("entry_date", "title", "amount", "paid_by", "category__name")[:10]
+    )
+
+    return Response({
+        "period": {"start": start, "end": end},
+        "cards": {
+            "revenue": _finance_v2_money(revenue),
+            "expenses": _finance_v2_money(expenses),
+            "net_profit": _finance_v2_money(net_profit),
+            "orders_count": orders.count(),
+        },
+        "top_products": [
+            {"product": x["name_snapshot"], "quantity_sold": x["quantity_sold"], "revenue": _finance_v2_money(x["revenue"])}
+            for x in top_products
+        ],
+        "latest_expenses": [
+            {
+                "date": x["entry_date"],
+                "title": x["title"],
+                "amount": _finance_v2_money(x["amount"]),
+                "paid_by": x["paid_by"],
+                "category": x["category__name"] or "Sin categoría",
+            }
+            for x in latest_expenses
+        ],
+    })
+
+# ============================================================
+# Smart Finance & Inventory - Phase 1
+# Uses existing orders, accounting, recipes and ingredient stock.
+# ============================================================
+
+def _smart_finance_decimal(value):
+    return Decimal(str(value or '0.00'))
+
+
+def _smart_finance_date_range(request):
+    from datetime import timedelta
+    from django.utils.dateparse import parse_date
+
+    today = timezone.localdate()
+    date_from = parse_date(str(request.query_params.get('date_from') or '')) or today
+    date_to = parse_date(str(request.query_params.get('date_to') or '')) or today
+    if date_from > date_to:
+        raise ValueError('La fecha inicial no puede ser posterior a la fecha final.')
+    if (date_to - date_from).days > 366:
+        raise ValueError('El periodo máximo permitido es de 366 días.')
+    return date_from, date_to
+
+
+def _smart_finance_recurring_amount(rule, date_from, date_to):
+    import calendar
+    from datetime import timedelta
+
+    start = max(date_from, rule.start_date)
+    end = min(date_to, rule.end_date) if rule.end_date else date_to
+    if start > end:
+        return Decimal('0.00')
+
+    days = (end - start).days + 1
+    amount = _smart_finance_decimal(rule.amount)
+
+    if rule.frequency == rule.FREQUENCY_DAILY:
+        return amount * Decimal(days)
+    if rule.frequency == rule.FREQUENCY_WEEKLY:
+        return (amount / Decimal('7')) * Decimal(days)
+
+    total = Decimal('0.00')
+    cursor = start
+    while cursor <= end:
+        days_in_month = calendar.monthrange(cursor.year, cursor.month)[1]
+        month_last_day = cursor.replace(day=days_in_month)
+        segment_end = min(month_last_day, end)
+        segment_days = (segment_end - cursor).days + 1
+        total += (amount / Decimal(days_in_month)) * Decimal(segment_days)
+        cursor = segment_end + timedelta(days=1)
+    return total
+
+
+def _smart_finance_rule_payload(rule):
+    return {
+        'id': rule.id,
+        'title': rule.title,
+        'amount': float(rule.amount or 0),
+        'frequency': rule.frequency,
+        'category_id': rule.category_id,
+        'category_name': rule.category.name if rule.category_id else '',
+        'paid_by': rule.paid_by,
+        'start_date': rule.start_date.isoformat() if rule.start_date else '',
+        'end_date': rule.end_date.isoformat() if rule.end_date else '',
+        'is_active': bool(rule.is_active),
+        'notes': rule.notes or '',
+    }
+
+
+def _smart_finance_recipe_costs(date_from, date_to):
+    from .models import ProductCostProfile, OrderItem
+
+    sales = (
+        OrderItem.objects.filter(
+            order__created_at__date__gte=date_from,
+            order__created_at__date__lte=date_to,
+        )
+        .exclude(order__status=Order.STATUS_CANCELLED)
+        .values('menu_item_id')
+        .annotate(units=Sum('quantity'), revenue=Sum('total'))
+    )
+    sales_by_item = {
+        row['menu_item_id']: {
+            'units': _smart_finance_decimal(row['units']),
+            'revenue': _smart_finance_decimal(row['revenue']),
+        }
+        for row in sales if row.get('menu_item_id')
+    }
+
+    estimated_cost = Decimal('0.00')
+    configured_revenue = Decimal('0.00')
+    configured_units = Decimal('0.00')
+    profiles = ProductCostProfile.objects.select_related('menu_item').prefetch_related('components__ingredient')
+    for profile in profiles:
+        sold = sales_by_item.pop(profile.menu_item_id, None)
+        if not sold or not profile.components.exists():
+            continue
+        ingredient_cost = sum(
+            (_smart_finance_decimal(component.quantity) * _smart_finance_decimal(component.ingredient.unit_cost))
+            for component in profile.components.all()
+        )
+        unit_cost = ingredient_cost + _smart_finance_decimal(profile.packaging_cost) + _smart_finance_decimal(profile.fixed_cost)
+        estimated_cost += unit_cost * sold['units']
+        configured_revenue += sold['revenue']
+        configured_units += sold['units']
+
+    unconfigured_revenue = sum((row['revenue'] for row in sales_by_item.values()), Decimal('0.00'))
+    return {
+        'estimated_cost': estimated_cost,
+        'configured_revenue': configured_revenue,
+        'unconfigured_revenue': unconfigured_revenue,
+        'configured_units': configured_units,
+    }
+
+
+def _smart_finance_inventory_payload(today):
+    from datetime import timedelta
+    from .models import Ingredient, RecipeIngredient, OrderItem
+
+    history_start = today - timedelta(days=13)
+    sales = (
+        OrderItem.objects.filter(
+            order__created_at__date__gte=history_start,
+            order__created_at__date__lte=today,
+        )
+        .exclude(order__status=Order.STATUS_CANCELLED)
+        .values('menu_item_id')
+        .annotate(units=Sum('quantity'))
+    )
+    units_by_item = {row['menu_item_id']: _smart_finance_decimal(row['units']) for row in sales if row.get('menu_item_id')}
+
+    daily_usage = {}
+    for row in RecipeIngredient.objects.select_related('profile__menu_item', 'ingredient').all():
+        sold = units_by_item.get(row.profile.menu_item_id, Decimal('0.00'))
+        if sold:
+            daily_usage[row.ingredient_id] = daily_usage.get(row.ingredient_id, Decimal('0.00')) + (
+                _smart_finance_decimal(row.quantity) * sold / Decimal('14')
+            )
+
+    result = []
+    for ingredient in Ingredient.objects.filter(is_active=True).order_by('name'):
+        stock = _smart_finance_decimal(ingredient.stock_quantity)
+        reorder = _smart_finance_decimal(ingredient.reorder_level)
+        average = daily_usage.get(ingredient.id, Decimal('0.00'))
+        days_left = (stock / average) if average > 0 else None
+        low = stock <= reorder if reorder > 0 else False
+        urgent = days_left is not None and days_left <= Decimal('1.5')
+        warning = low or urgent
+        result.append({
+            'id': ingredient.id,
+            'name': ingredient.name,
+            'unit': ingredient.unit,
+            'stock_quantity': float(stock),
+            'reorder_level': float(reorder),
+            'average_daily_usage': float(average.quantize(Decimal('0.001'))),
+            'estimated_days_left': float(days_left.quantize(Decimal('0.1'))) if days_left is not None else None,
+            'warning': warning,
+            'status': 'urgent' if urgent else ('low' if low else 'ok'),
+        })
+    return result
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_smart_finance_overview(request):
+    from datetime import timedelta
+    from .models import RestaurantFinancialEntry, RecurringExpenseRule
+
+    try:
+        date_from, date_to = _smart_finance_date_range(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    days = (date_to - date_from).days + 1
+    approved_statuses = [
+        RestaurantFinancialEntry.STATUS_APPROVED,
+        RestaurantFinancialEntry.STATUS_REIMBURSED,
+    ]
+    orders = Order.objects.filter(
+        created_at__date__gte=date_from,
+        created_at__date__lte=date_to,
+    ).exclude(status=Order.STATUS_CANCELLED)
+    entries = RestaurantFinancialEntry.objects.filter(
+        entry_date__gte=date_from,
+        entry_date__lte=date_to,
+        status__in=approved_statuses,
+        entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+    )
+
+    revenue = orders.aggregate(value=Sum('total')).get('value') or Decimal('0.00')
+    discounts = orders.aggregate(value=Sum('discount')).get('value') or Decimal('0.00')
+    delivery_fees = orders.aggregate(value=Sum('delivery_fee')).get('value') or Decimal('0.00')
+    actual_expenses = entries.aggregate(value=Sum('amount')).get('value') or Decimal('0.00')
+
+    active_rules = RecurringExpenseRule.objects.filter(
+        is_active=True,
+        start_date__lte=date_to,
+    ).filter(Q(end_date__isnull=True) | Q(end_date__gte=date_from)).select_related('category')
+    recurring_rows = []
+    recurring_allocated = Decimal('0.00')
+    for rule in active_rules:
+        allocation = _smart_finance_recurring_amount(rule, date_from, date_to)
+        recurring_allocated += allocation
+        recurring_rows.append({
+            **_smart_finance_rule_payload(rule),
+            'allocated_amount': float(allocation.quantize(Decimal('0.01'))),
+        })
+
+    recipe = _smart_finance_recipe_costs(date_from, date_to)
+    product_cost = recipe['estimated_cost']
+    product_margin = revenue - product_cost
+    cash_net_before_recurring = revenue - actual_expenses
+    cash_net_after_recurring = cash_net_before_recurring - recurring_allocated
+
+    # Recurring expenses are a forecast allocation. They may duplicate cash entries
+    # if the manager also registers the same bill as a normal expense.
+    warnings = []
+    if recurring_allocated > 0:
+        warnings.append({
+            'level': 'info',
+            'code': 'recurring_estimate',
+            'message_es': 'Los costes recurrentes se asignan como estimación. No registres el mismo recibo dos veces en Contabilidad.',
+            'message_fa': 'هزینه‌های تکراری به‌صورت تخمینی تخصیص می‌یابند؛ همان قبض را دوباره در حسابداری ثبت نکنید.',
+            'message_ar': 'يتم توزيع التكاليف المتكررة كتقدير؛ لا تسجل نفس الفاتورة مرتين في المحاسبة.',
+        })
+    if recipe['unconfigured_revenue'] > 0:
+        warnings.append({
+            'level': 'warning',
+            'code': 'missing_recipes',
+            'message_es': 'Hay ventas sin receta de coste configurada; el margen real por producto es incompleto.',
+            'message_fa': 'برای بعضی فروش‌ها دستور و هزینه مواد اولیه ثبت نشده است؛ سود واقعی غذاها کامل نیست.',
+            'message_ar': 'هناك مبيعات لمنتجات بدون وصفة تكلفة؛ هامش الربح الحقيقي للمنتجات غير مكتمل.',
+        })
+
+    inventory = _smart_finance_inventory_payload(date_to)
+    for row in inventory:
+        if row['warning']:
+            warnings.append({
+                'level': 'danger' if row['status'] == 'urgent' else 'warning',
+                'code': 'inventory_low',
+                'ingredient_id': row['id'],
+                'message_es': f"{row['name']} necesita revisión de stock.",
+                'message_fa': f"موجودی {row['name']} نیاز به بررسی دارد.",
+                'message_ar': f"مخزون {row['name']} يحتاج إلى مراجعة.",
+            })
+
+    # Forecast: average actual cash result of the latest 14 available days.
+    history_start = date_to - timedelta(days=13)
+    history_orders = Order.objects.filter(
+        created_at__date__gte=history_start,
+        created_at__date__lte=date_to,
+    ).exclude(status=Order.STATUS_CANCELLED)
+    history_revenue = history_orders.aggregate(value=Sum('total')).get('value') or Decimal('0.00')
+    history_expenses = RestaurantFinancialEntry.objects.filter(
+        entry_date__gte=history_start,
+        entry_date__lte=date_to,
+        status__in=approved_statuses,
+        entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+    ).aggregate(value=Sum('amount')).get('value') or Decimal('0.00')
+    history_recurring = sum(
+        (_smart_finance_recurring_amount(rule, history_start, date_to) for rule in active_rules),
+        Decimal('0.00'),
+    )
+    avg_daily_net = (history_revenue - history_expenses - history_recurring) / Decimal('14')
+
+    gross_margin_percent = (
+        (product_margin / revenue * Decimal('100.00'))
+        if revenue > 0 and recipe['configured_revenue'] > 0 else Decimal('0.00')
+    )
+    recurring_daily = recurring_allocated / Decimal(days) if days else Decimal('0.00')
+    break_even_sales = (
+        recurring_daily / (gross_margin_percent / Decimal('100.00'))
+        if gross_margin_percent > 0 else Decimal('0.00')
+    )
+
+    expense_categories = list(
+        entries.values('category__name').annotate(total=Sum('amount')).order_by('-total')
+    )
+    return Response({
+        'period': {'date_from': date_from.isoformat(), 'date_to': date_to.isoformat(), 'days': days},
+        'profit_loss': {
+            'gross_sales': float(revenue),
+            'discounts': float(discounts),
+            'delivery_fees_collected': float(delivery_fees),
+            'actual_logged_expenses': float(actual_expenses),
+            'recurring_cost_allocation': float(recurring_allocated.quantize(Decimal('0.01'))),
+            'cash_net_before_recurring': float(cash_net_before_recurring),
+            'estimated_cash_net': float(cash_net_after_recurring),
+            'estimated_recipe_cost': float(product_cost.quantize(Decimal('0.01'))),
+            'estimated_product_margin': float(product_margin.quantize(Decimal('0.01'))),
+            'product_margin_percent': float(gross_margin_percent.quantize(Decimal('0.01'))),
+            'orders_count': orders.count(),
+        },
+        'forecast': {
+            'average_daily_net_last_14_days': float(avg_daily_net.quantize(Decimal('0.01'))),
+            'next_7_days_net': float((avg_daily_net * Decimal('7')).quantize(Decimal('0.01'))),
+            'next_30_days_net': float((avg_daily_net * Decimal('30')).quantize(Decimal('0.01'))),
+            'trend': 'profit' if avg_daily_net >= 0 else 'loss',
+        },
+        'break_even': {
+            'daily_recurring_cost': float(recurring_daily.quantize(Decimal('0.01'))),
+            'gross_margin_percent': float(gross_margin_percent.quantize(Decimal('0.01'))),
+            'daily_sales_needed': float(break_even_sales.quantize(Decimal('0.01'))),
+            'available': bool(gross_margin_percent > 0),
+        },
+        'recurring_costs': recurring_rows,
+        'inventory': inventory,
+        'expense_categories': [
+            {'name': row['category__name'] or 'Sin categoría', 'amount': float(row['total'] or 0)}
+            for row in expense_categories
+        ],
+        'warnings': warnings,
+    })
+
+
+@api_view(['GET', 'POST'])
+@admin_token_required
+def admin_smart_finance_recurring_costs(request):
+    from .models import ExpenseCategory, RecurringExpenseRule
+    from django.utils.dateparse import parse_date
+
+    if request.method == 'GET':
+        rows = RecurringExpenseRule.objects.select_related('category').all()
+        return Response([_smart_finance_rule_payload(row) for row in rows])
+
+    data = request.data or {}
+    title = str(data.get('title') or '').strip()
+    if not title:
+        return Response({'detail': 'El título es obligatorio.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        amount = Decimal(str(data.get('amount') or '0'))
+        if amount <= 0:
+            raise ValueError('El importe debe ser mayor que cero.')
+        category = None
+        if data.get('category_id'):
+            category = ExpenseCategory.objects.get(id=int(data['category_id']))
+        start_date = parse_date(str(data.get('start_date') or '')) or timezone.localdate()
+        end_date = parse_date(str(data.get('end_date') or '')) if data.get('end_date') else None
+        if end_date and end_date < start_date:
+            raise ValueError('La fecha final no puede ser anterior a la fecha inicial.')
+        row = RecurringExpenseRule.objects.create(
+            title=title,
+            amount=amount,
+            frequency=str(data.get('frequency') or RecurringExpenseRule.FREQUENCY_MONTHLY),
+            category=category,
+            paid_by=str(data.get('paid_by') or RestaurantFinancialEntry.PARTY_BBVA),
+            start_date=start_date,
+            end_date=end_date,
+            is_active=bool(data.get('is_active', True)),
+            notes=str(data.get('notes') or '').strip(),
+            created_by_username=request.admin_user.get_username(),
+            updated_by_username=request.admin_user.get_username(),
+        )
+    except (ValueError, TypeError, ExpenseCategory.DoesNotExist) as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(_smart_finance_rule_payload(row), status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH', 'DELETE'])
+@admin_token_required
+def admin_smart_finance_recurring_cost_detail(request, rule_id):
+    from .models import ExpenseCategory, RecurringExpenseRule
+    from django.utils.dateparse import parse_date
+
+    try:
+        row = RecurringExpenseRule.objects.select_related('category').get(id=rule_id)
+    except RecurringExpenseRule.DoesNotExist:
+        return Response({'detail': 'Coste recurrente no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        row.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    data = request.data or {}
+    try:
+        if 'title' in data:
+            row.title = str(data['title'] or '').strip()
+        if not row.title:
+            raise ValueError('El título es obligatorio.')
+        if 'amount' in data:
+            row.amount = Decimal(str(data['amount'] or '0'))
+            if row.amount <= 0:
+                raise ValueError('El importe debe ser mayor que cero.')
+        if 'frequency' in data:
+            row.frequency = str(data['frequency'])
+        if 'category_id' in data:
+            row.category = ExpenseCategory.objects.get(id=int(data['category_id'])) if data['category_id'] else None
+        if 'paid_by' in data:
+            row.paid_by = str(data['paid_by'])
+        if 'start_date' in data:
+            row.start_date = parse_date(str(data['start_date'])) or row.start_date
+        if 'end_date' in data:
+            row.end_date = parse_date(str(data['end_date'])) if data['end_date'] else None
+        if row.end_date and row.end_date < row.start_date:
+            raise ValueError('La fecha final no puede ser anterior a la fecha inicial.')
+        if 'is_active' in data:
+            row.is_active = bool(data['is_active'])
+        if 'notes' in data:
+            row.notes = str(data['notes'] or '').strip()
+        row.updated_by_username = request.admin_user.get_username()
+        row.full_clean()
+        row.save()
+    except (ValueError, TypeError, ExpenseCategory.DoesNotExist) as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(_smart_finance_rule_payload(row))
+
+# ============================================================
+# v22 Real Inventory: purchases, waste, adjustments, sale usage
+# ============================================================
+
+def _inventory_decimal(value, default='0'):
+    return Decimal(str(value if value not in (None, '') else default))
+
+
+def _inventory_movement_payload(row):
+    return {
+        'id': row.id,
+        'ingredient_id': row.ingredient_id,
+        'ingredient_name': row.ingredient.name if hasattr(row, 'ingredient') else '',
+        'unit': row.ingredient.unit if hasattr(row, 'ingredient') else '',
+        'movement_type': row.movement_type,
+        'quantity_delta': float(row.quantity_delta or 0),
+        'unit_cost_snapshot': float(row.unit_cost_snapshot or 0),
+        'total_cost': float(row.total_cost or 0),
+        'iva_percent': float(getattr(row, 'iva_percent', 0) or 0),
+        'iva_amount': float(getattr(row, 'iva_amount', 0) or 0),
+        'total_amount_with_iva': float(getattr(row, 'total_amount_with_iva', row.total_cost) or 0),
+        'supplier_name': row.supplier_name or '',
+        'invoice_number': row.invoice_number or '',
+        'reference': row.reference or '',
+        'notes': row.notes or '',
+        'occurred_at': row.occurred_at.isoformat() if row.occurred_at else '',
+    }
+
+
+def _inventory_apply_movement(*, ingredient_id, movement_type, quantity_delta, unit_cost_snapshot=None,
+                              total_cost=None, iva_percent=None, iva_amount=None, total_amount_with_iva=None, order_item=None, financial_entry=None, supplier_name='',
+                              invoice_number='', reference='', notes='', occurred_at=None, username=''):
+    from .models import Ingredient, InventoryMovement
+
+    with transaction.atomic():
+        ingredient = Ingredient.objects.select_for_update().get(id=ingredient_id)
+        if order_item and movement_type == InventoryMovement.TYPE_SALE:
+            existing = InventoryMovement.objects.filter(
+                order_item=order_item,
+                ingredient=ingredient,
+                movement_type=InventoryMovement.TYPE_SALE,
+            ).first()
+            if existing:
+                return existing, False
+
+        delta = _inventory_decimal(quantity_delta)
+        unit_cost = _inventory_decimal(
+            unit_cost_snapshot if unit_cost_snapshot is not None else ingredient.unit_cost,
+            '0.0000'
+        )
+        total = _inventory_decimal(
+            total_cost if total_cost is not None else abs(delta) * unit_cost,
+            '0.00'
+        )
+        row = InventoryMovement.objects.create(
+            ingredient=ingredient,
+            movement_type=movement_type,
+            quantity_delta=delta,
+            unit_cost_snapshot=unit_cost,
+            total_cost=total,
+            iva_percent=_inventory_decimal(iva_percent, '0.00') if iva_percent is not None else Decimal('0.00'),
+            iva_amount=_inventory_decimal(iva_amount, '0.00') if iva_amount is not None else Decimal('0.00'),
+            total_amount_with_iva=_inventory_decimal(total_amount_with_iva, '0.00') if total_amount_with_iva is not None else total,
+            order_item=order_item,
+            financial_entry=financial_entry,
+            supplier_name=str(supplier_name or '').strip(),
+            invoice_number=str(invoice_number or '').strip(),
+            reference=str(reference or '').strip(),
+            notes=str(notes or '').strip(),
+            occurred_at=occurred_at or timezone.now(),
+            created_by_username=str(username or '').strip(),
+        )
+        ingredient.stock_quantity = _inventory_decimal(ingredient.stock_quantity) + delta
+        if movement_type == InventoryMovement.TYPE_PURCHASE and unit_cost >= 0:
+            ingredient.unit_cost = unit_cost
+        ingredient.save(update_fields=['stock_quantity', 'unit_cost', 'updated_at'])
+        return row, True
+
+
+def consume_inventory_for_order(order):
+    """Deduct recipe components only once, when an order reaches Delivered."""
+    from .models import ProductCostProfile, InventoryMovement
+
+    if order.status != Order.STATUS_DELIVERED:
+        return {'created': 0, 'skipped': 0}
+
+    order_items = order.items.select_related('menu_item').all()
+    profiles = {
+        profile.menu_item_id: profile
+        for profile in ProductCostProfile.objects.prefetch_related('components__ingredient').filter(
+            menu_item_id__in=[row.menu_item_id for row in order_items if row.menu_item_id]
+        )
+    }
+    created = 0
+    skipped = 0
+    for order_item in order_items:
+        profile = profiles.get(order_item.menu_item_id)
+        if not profile:
+            continue
+        for component in profile.components.all():
+            quantity = _inventory_decimal(component.quantity) * _inventory_decimal(order_item.quantity)
+            if quantity <= 0:
+                continue
+            _, was_created = _inventory_apply_movement(
+                ingredient_id=component.ingredient_id,
+                movement_type=InventoryMovement.TYPE_SALE,
+                quantity_delta=-quantity,
+                unit_cost_snapshot=component.ingredient.unit_cost,
+                total_cost=quantity * _inventory_decimal(component.ingredient.unit_cost),
+                order_item=order_item,
+                reference=f'Pedido {order.order_code}',
+                notes=f'Consumo automático: {order_item.name_snapshot}',
+                occurred_at=order.updated_at or timezone.now(),
+                username='system',
+            )
+            if was_created:
+                created += 1
+            else:
+                skipped += 1
+    return {'created': created, 'skipped': skipped}
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_inventory_real_overview(request):
+    from datetime import timedelta
+    from .models import Ingredient, InventoryMovement, RecipeIngredient
+
+    today = timezone.localdate()
+    days = max(1, min(90, int(request.query_params.get('days', 14) or 14)))
+    start = today - timedelta(days=days - 1)
+
+    sales = (
+        Order.objects.filter(created_at__date__gte=start, created_at__date__lte=today)
+        .exclude(status=Order.STATUS_CANCELLED)
+        .filter(status=Order.STATUS_DELIVERED)
+        .values('items__menu_item_id')
+        .annotate(units=Sum('items__quantity'))
+    )
+    units_by_item = {row['items__menu_item_id']: _inventory_decimal(row['units']) for row in sales if row.get('items__menu_item_id')}
+    daily_usage = {}
+    for component in RecipeIngredient.objects.select_related('profile', 'ingredient').all():
+        sold = units_by_item.get(component.profile.menu_item_id, Decimal('0.00'))
+        if sold:
+            daily_usage[component.ingredient_id] = daily_usage.get(component.ingredient_id, Decimal('0.00')) + (
+                _inventory_decimal(component.quantity) * sold / Decimal(days)
+            )
+
+    ingredients = []
+    suggestions = []
+    for ingredient in Ingredient.objects.filter(is_active=True).order_by('name'):
+        stock = _inventory_decimal(ingredient.stock_quantity)
+        average = daily_usage.get(ingredient.id, Decimal('0.00'))
+        reorder = _inventory_decimal(ingredient.reorder_level)
+        days_left = (stock / average) if average > 0 else None
+        target = max(reorder, average * Decimal('7'))
+        suggested_quantity = max(Decimal('0.00'), target - stock)
+        status_name = 'ok'
+        if days_left is not None and days_left <= Decimal('1.5'):
+            status_name = 'urgent'
+        elif stock <= reorder:
+            status_name = 'low'
+        row = {
+            'id': ingredient.id,
+            'name': ingredient.name,
+            'unit': ingredient.unit,
+            'stock_quantity': float(stock),
+            'unit_cost': float(ingredient.unit_cost or 0),
+            'reorder_level': float(reorder),
+            'supplier_name': ingredient.supplier_name or '',
+            'average_daily_usage': float(average.quantize(Decimal('0.001'))),
+            'estimated_days_left': float(days_left.quantize(Decimal('0.1'))) if days_left is not None else None,
+            'suggested_purchase_quantity': float(suggested_quantity.quantize(Decimal('0.001'))),
+            'status': status_name,
+        }
+        ingredients.append(row)
+        if suggested_quantity > 0:
+            suggestions.append(row)
+
+    movements = InventoryMovement.objects.select_related('ingredient').order_by('-occurred_at', '-id')[:80]
+    return Response({
+        'days_window': days,
+        'ingredients': ingredients,
+        'suggested_purchase_list': suggestions,
+        'recent_movements': [_inventory_movement_payload(row) for row in movements],
+    })
+
+
+@api_view(['POST'])
+@admin_token_required
+def admin_inventory_purchase(request):
+    from .models import Ingredient, RestaurantFinancialEntry, ExpenseCategory, InventoryMovement
+    from django.utils.dateparse import parse_datetime, parse_date
+
+    data = request.data or {}
+    try:
+        ingredient = Ingredient.objects.get(id=int(data.get('ingredient_id')))
+        quantity = _inventory_decimal(data.get('quantity'))
+        unit_cost = _inventory_decimal(
+            data.get('unit_cost') if data.get('unit_cost') not in (None, '') else ingredient.unit_cost,
+            '0.0000'
+        )
+        iva_percent = _inventory_decimal(
+            data.get('iva_percent') if data.get('iva_percent') not in (None, '') else '10.00',
+            '0.00'
+        )
+        if quantity <= 0 or unit_cost < 0 or iva_percent < 0 or iva_percent > Decimal('100.00'):
+            raise ValueError('Cantidad, coste unitario o IVA no válidos.')
+
+        subtotal_amount = (quantity * unit_cost).quantize(Decimal('0.01'))
+        iva_amount = (subtotal_amount * iva_percent / Decimal('100.00')).quantize(Decimal('0.01'))
+        total_amount = (subtotal_amount + iva_amount).quantize(Decimal('0.01'))
+
+        occurred = parse_datetime(str(data.get('occurred_at') or ''))
+        if not occurred:
+            purchase_date = parse_date(str(data.get('purchase_date') or '')) or timezone.localdate()
+            occurred = timezone.make_aware(timezone.datetime.combine(purchase_date, timezone.datetime.min.time()))
+
+        category, _ = ExpenseCategory.objects.get_or_create(name='Materias primas')
+        supplier = str(data.get('supplier_name') or ingredient.supplier_name or '').strip()
+        invoice_number = str(data.get('invoice_number') or '').strip()
+        notes = str(data.get('notes') or '').strip()
+        entry = RestaurantFinancialEntry.objects.create(
+            entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+            title=f'Compra: {ingredient.name}',
+            description=(notes + f'\nBase: {subtotal_amount} € | IVA {iva_percent}%: {iva_amount} € | Total: {total_amount} €').strip(),
+            amount=total_amount,
+            entry_date=occurred.date(),
+            category=category,
+            paid_by=str(data.get('paid_by') or RestaurantFinancialEntry.PARTY_BBVA),
+            payment_method=str(data.get('payment_method') or RestaurantFinancialEntry.PAYMENT_BBVA),
+            invoice_number=invoice_number,
+            status=RestaurantFinancialEntry.STATUS_APPROVED,
+            created_by_username=request.admin_user.get_username(),
+            updated_by_username=request.admin_user.get_username(),
+        )
+        movement, _ = _inventory_apply_movement(
+            ingredient_id=ingredient.id,
+            movement_type=InventoryMovement.TYPE_PURCHASE,
+            quantity_delta=quantity,
+            unit_cost_snapshot=unit_cost,
+            total_cost=subtotal_amount,
+            financial_entry=entry,
+            supplier_name=supplier,
+            invoice_number=invoice_number,
+            reference='Compra de inventario',
+            notes=notes,
+            occurred_at=occurred,
+            username=request.admin_user.get_username(),
+        )
+        # No change to the shared inventory helper is needed. These fields are
+        # saved directly after the normal stock movement is created.
+        movement.iva_percent = iva_percent
+        movement.iva_amount = iva_amount
+        movement.total_amount_with_iva = total_amount
+        movement.save(update_fields=['iva_percent', 'iva_amount', 'total_amount_with_iva'])
+        if supplier:
+            ingredient.supplier_name = supplier
+            ingredient.save(update_fields=['supplier_name', 'updated_at'])
+    except (ValueError, TypeError, Ingredient.DoesNotExist, ExpenseCategory.DoesNotExist) as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({
+        'success': True,
+        'movement': _inventory_movement_payload(movement),
+        'financial_entry_id': entry.id,
+        'calculation': {
+            'subtotal_amount': float(subtotal_amount),
+            'iva_percent': float(iva_percent),
+            'iva_amount': float(iva_amount),
+            'total_amount_with_iva': float(total_amount),
+        },
+    }, status=status.HTTP_201_CREATED)
+
+@api_view(['POST'])
+@admin_token_required
+def admin_inventory_waste(request):
+    from .models import Ingredient, InventoryMovement
+    from django.utils.dateparse import parse_datetime
+
+    data = request.data or {}
+    try:
+        ingredient = Ingredient.objects.get(id=int(data.get('ingredient_id')))
+        quantity = _inventory_decimal(data.get('quantity'))
+        if quantity <= 0:
+            raise ValueError('La cantidad de desperdicio debe ser mayor que cero.')
+        occurred = parse_datetime(str(data.get('occurred_at') or '')) or timezone.now()
+        movement, _ = _inventory_apply_movement(
+            ingredient_id=ingredient.id,
+            movement_type=InventoryMovement.TYPE_WASTE,
+            quantity_delta=-quantity,
+            unit_cost_snapshot=ingredient.unit_cost,
+            total_cost=quantity * _inventory_decimal(ingredient.unit_cost),
+            reference='Merma / desperdicio',
+            notes=str(data.get('notes') or '').strip(),
+            occurred_at=occurred,
+            username=request.admin_user.get_username(),
+        )
+    except (ValueError, TypeError, Ingredient.DoesNotExist) as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'success': True, 'movement': _inventory_movement_payload(movement)}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@admin_token_required
+def admin_inventory_adjustment(request):
+    from .models import Ingredient, InventoryMovement
+
+    data = request.data or {}
+    try:
+        ingredient = Ingredient.objects.get(id=int(data.get('ingredient_id')))
+        delta = _inventory_decimal(data.get('quantity_delta'))
+        if delta == 0:
+            raise ValueError('El ajuste no puede ser cero.')
+        movement, _ = _inventory_apply_movement(
+            ingredient_id=ingredient.id,
+            movement_type=InventoryMovement.TYPE_ADJUSTMENT,
+            quantity_delta=delta,
+            unit_cost_snapshot=ingredient.unit_cost,
+            total_cost=abs(delta) * _inventory_decimal(ingredient.unit_cost),
+            reference='Ajuste manual',
+            notes=str(data.get('notes') or '').strip(),
+            username=request.admin_user.get_username(),
+        )
+    except (ValueError, TypeError, Ingredient.DoesNotExist) as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'success': True, 'movement': _inventory_movement_payload(movement)}, status=status.HTTP_201_CREATED)
+
+# ============================================================
+# v23 Profit Intelligence: product analysis, targets, partners
+# ============================================================
+
+def _profit_intelligence_range(request):
+    from django.utils.dateparse import parse_date
+    from datetime import timedelta
+    today = timezone.localdate()
+    start = parse_date(str(request.query_params.get('date_from') or '')) or (today - timedelta(days=29))
+    end = parse_date(str(request.query_params.get('date_to') or '')) or today
+    if start > end:
+        raise ValueError('La fecha inicial no puede ser posterior a la fecha final.')
+    if (end - start).days > 366:
+        raise ValueError('El periodo máximo es de 366 días.')
+    return start, end
+
+
+def _profit_intelligence_product_rows(date_from, date_to):
+    from .models import OrderItem, ProductCostProfile
+    sales = (
+        OrderItem.objects.filter(order__created_at__date__gte=date_from, order__created_at__date__lte=date_to)
+        .exclude(order__status=Order.STATUS_CANCELLED)
+        .values('menu_item_id', 'name_snapshot')
+        .annotate(units=Sum('quantity'), revenue=Sum('total'))
+        .order_by('-revenue')
+    )
+    profiles = {
+        x.menu_item_id: x
+        for x in ProductCostProfile.objects.select_related('menu_item').prefetch_related('components__ingredient').all()
+    }
+    rows = []
+    for row in sales:
+        profile = profiles.get(row['menu_item_id'])
+        units = _inventory_decimal(row['units'])
+        revenue = _inventory_decimal(row['revenue'])
+        unit_cost = None
+        if profile and profile.components.exists():
+            ingredients_cost = sum(
+                (_inventory_decimal(c.quantity) * _inventory_decimal(c.ingredient.unit_cost))
+                for c in profile.components.all()
+            )
+            unit_cost = ingredients_cost + _inventory_decimal(profile.packaging_cost) + _inventory_decimal(profile.fixed_cost)
+        total_cost = unit_cost * units if unit_cost is not None else Decimal('0.00')
+        profit = revenue - total_cost if unit_cost is not None else None
+        margin = (profit / revenue * Decimal('100')) if profit is not None and revenue > 0 else None
+        rows.append({
+            'menu_item_id': row['menu_item_id'],
+            'name': row['name_snapshot'],
+            'units': float(units),
+            'revenue': float(revenue),
+            'unit_cost': float(unit_cost.quantize(Decimal('0.0001'))) if unit_cost is not None else None,
+            'total_cost': float(total_cost.quantize(Decimal('0.01'))) if unit_cost is not None else None,
+            'profit': float(profit.quantize(Decimal('0.01'))) if profit is not None else None,
+            'margin_percent': float(margin.quantize(Decimal('0.1'))) if margin is not None else None,
+            'target_margin_percent': float(profile.target_margin_percent) if profile else None,
+            'has_recipe': bool(profile and profile.components.exists()),
+        })
+    if not rows:
+        return rows
+
+    avg_units = sum(Decimal(str(r['units'])) for r in rows) / Decimal(len(rows))
+    for row in rows:
+        high_sales = Decimal(str(row['units'])) >= avg_units
+        good_margin = row['margin_percent'] is not None and row['target_margin_percent'] is not None and Decimal(str(row['margin_percent'])) >= Decimal(str(row['target_margin_percent']))
+        if row['margin_percent'] is None:
+            row['quadrant'] = 'missing'
+        elif high_sales and good_margin:
+            row['quadrant'] = 'star'
+        elif high_sales and not good_margin:
+            row['quadrant'] = 'risk'
+        elif not high_sales and good_margin:
+            row['quadrant'] = 'hidden'
+        else:
+            row['quadrant'] = 'weak'
+    return rows
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_profit_intelligence_overview(request):
+    from datetime import timedelta
+    from .models import RestaurantFinancialEntry, AccountingSettings, BusinessTarget, InventoryMovement
+
+    try:
+        date_from, date_to = _profit_intelligence_range(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    products = _profit_intelligence_product_rows(date_from, date_to)
+    revenue = sum((_inventory_decimal(x['revenue']) for x in products), Decimal('0.00'))
+    estimated_product_profit = sum((_inventory_decimal(x['profit']) for x in products if x['profit'] is not None), Decimal('0.00'))
+    configured_revenue = sum((_inventory_decimal(x['revenue']) for x in products if x['has_recipe']), Decimal('0.00'))
+
+    approved = [RestaurantFinancialEntry.STATUS_APPROVED, RestaurantFinancialEntry.STATUS_REIMBURSED]
+    expenses = RestaurantFinancialEntry.objects.filter(
+        entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+        status__in=approved,
+        entry_date__gte=date_from, entry_date__lte=date_to
+    )
+    total_expenses = expenses.aggregate(x=Sum('amount'))['x'] or Decimal('0.00')
+    partner_rows = []
+    for party in [RestaurantFinancialEntry.PARTY_SAEID, RestaurantFinancialEntry.PARTY_AHMED, RestaurantFinancialEntry.PARTY_BBVA]:
+        paid = expenses.filter(paid_by=party).aggregate(x=Sum('amount'))['x'] or Decimal('0.00')
+        partner_rows.append({'party': party, 'expenses_paid': float(paid)})
+
+    waste = InventoryMovement.objects.filter(
+        movement_type=InventoryMovement.TYPE_WASTE,
+        occurred_at__date__gte=date_from, occurred_at__date__lte=date_to
+    ).aggregate(x=Sum('total_cost'))['x'] or Decimal('0.00')
+    target = BusinessTarget.current()
+    settings = AccountingSettings.current()
+    days = (date_to - date_from).days + 1
+    month_days = 30
+    revenue_target_for_period = _inventory_decimal(target.monthly_revenue_target) / Decimal(month_days) * Decimal(days)
+    profit_target_for_period = _inventory_decimal(target.monthly_profit_target) / Decimal(month_days) * Decimal(days)
+    net_estimate = estimated_product_profit - total_expenses
+    daily_revenue_needed = max(Decimal('0.00'), (_inventory_decimal(target.monthly_revenue_target) - revenue) / Decimal(max(1, month_days - min(days, month_days))))
+    daily_profit_needed = max(Decimal('0.00'), (_inventory_decimal(target.monthly_profit_target) - net_estimate) / Decimal(max(1, month_days - min(days, month_days))))
+
+    warnings = []
+    if configured_revenue < revenue:
+        warnings.append({'level':'warning','es':'Hay productos vendidos sin receta de coste completa; parte del beneficio es estimada.','fa':'برخی محصولات فروخته‌شده دستور و هزینه کامل ندارند؛ بخشی از سود تخمینی است.','ar':'هناك منتجات مباعة بلا وصفة تكلفة مكتملة؛ جزء من الربح تقديري.'})
+    if waste > revenue * Decimal('0.05') and revenue > 0:
+        warnings.append({'level':'danger','es':'El coste de mermas supera el 5 % de las ventas del periodo.','fa':'هزینه ضایعات بیش از ۵٪ فروش این بازه است.','ar':'تكلفة الهدر تتجاوز 5٪ من مبيعات الفترة.'})
+    for row in products:
+        if row['quadrant'] == 'risk':
+            warnings.append({'level':'warning','es':f"{row['name']} vende bien pero su margen está bajo el objetivo.",'fa':f"{row['name']} پرفروش است اما حاشیه سود آن زیر هدف است.",'ar':f"{row['name']} يبيع جيداً لكن هامش ربحه أقل من الهدف."})
+            break
+
+    return Response({
+        'period': {'date_from':date_from.isoformat(),'date_to':date_to.isoformat(),'days':days},
+        'summary': {
+            'revenue':float(revenue), 'estimated_product_profit':float(estimated_product_profit.quantize(Decimal('0.01'))),
+            'actual_expenses':float(total_expenses), 'waste_cost':float(waste),
+            'estimated_net_profit':float(net_estimate.quantize(Decimal('0.01')),
+            ), 'configured_revenue':float(configured_revenue),
+        },
+        'targets': {
+            'monthly_revenue_target':float(target.monthly_revenue_target),
+            'monthly_profit_target':float(target.monthly_profit_target),
+            'period_revenue_target':float(revenue_target_for_period.quantize(Decimal('0.01'))),
+            'period_profit_target':float(profit_target_for_period.quantize(Decimal('0.01'))),
+            'daily_revenue_needed':float(daily_revenue_needed.quantize(Decimal('0.01'))),
+            'daily_profit_needed':float(daily_profit_needed.quantize(Decimal('0.01'))),
+        },
+        'partners': partner_rows,
+        'ownership': {'saeid_percent':float(settings.saeid_share_percent),'ahmed_percent':float(settings.ahmed_share_percent)},
+        'products': products,
+        'warnings': warnings,
+    })
+
+
+@api_view(['GET', 'PATCH'])
+@admin_token_required
+def admin_profit_intelligence_targets(request):
+    from .models import BusinessTarget
+    target = BusinessTarget.current()
+    if request.method == 'GET':
+        return Response({'monthly_revenue_target':float(target.monthly_revenue_target),'monthly_profit_target':float(target.monthly_profit_target)})
+    try:
+        target.monthly_revenue_target = _inventory_decimal(request.data.get('monthly_revenue_target'))
+        target.monthly_profit_target = _inventory_decimal(request.data.get('monthly_profit_target'))
+        if target.monthly_revenue_target < 0 or target.monthly_profit_target < 0:
+            raise ValueError('Los objetivos no pueden ser negativos.')
+        target.updated_by_username = request.admin_user.get_username()
+        target.save()
+    except (ValueError, TypeError) as exc:
+        return Response({'detail':str(exc)},status=status.HTTP_400_BAD_REQUEST)
+    return Response({'monthly_revenue_target':float(target.monthly_revenue_target),'monthly_profit_target':float(target.monthly_profit_target)})
+
+# ============================================================
+# v24 Management Finance Assistant & actionable alert brief
+# This assistant is deterministic: it answers only from restaurant data.
+# Telegram delivery is manual from the Admin panel; no background scheduler
+# is added by this patch.
+# ============================================================
+
+def _management_language(value):
+    return value if value in ('es', 'fa', 'ar') else 'es'
+
+
+def _management_text(es, fa, ar, language):
+    return {'es': es, 'fa': fa, 'ar': ar}.get(language, es)
+
+
+def _management_snapshot():
+    from datetime import timedelta
+    from .models import RestaurantFinancialEntry, InventoryMovement, BusinessTarget
+
+    today = timezone.localdate()
+    start_week = today - timedelta(days=6)
+    approved = [RestaurantFinancialEntry.STATUS_APPROVED, RestaurantFinancialEntry.STATUS_REIMBURSED]
+
+    today_products = _profit_intelligence_product_rows(today, today)
+    week_products = _profit_intelligence_product_rows(start_week, today)
+    today_revenue = sum((_inventory_decimal(x['revenue']) for x in today_products), Decimal('0.00'))
+    today_product_profit = sum((_inventory_decimal(x['profit']) for x in today_products if x['profit'] is not None), Decimal('0.00'))
+    today_expenses = RestaurantFinancialEntry.objects.filter(
+        entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+        status__in=approved,
+        entry_date=today,
+    ).aggregate(x=Sum('amount'))['x'] or Decimal('0.00')
+    today_waste = InventoryMovement.objects.filter(
+        movement_type=InventoryMovement.TYPE_WASTE,
+        occurred_at__date=today,
+    ).aggregate(x=Sum('total_cost'))['x'] or Decimal('0.00')
+    week_revenue = sum((_inventory_decimal(x['revenue']) for x in week_products), Decimal('0.00'))
+    week_profit = sum((_inventory_decimal(x['profit']) for x in week_products if x['profit'] is not None), Decimal('0.00'))
+    week_waste = InventoryMovement.objects.filter(
+        movement_type=InventoryMovement.TYPE_WASTE,
+        occurred_at__date__gte=start_week,
+        occurred_at__date__lte=today,
+    ).aggregate(x=Sum('total_cost'))['x'] or Decimal('0.00')
+
+    inventory = _smart_finance_inventory_payload(today)
+    low_stock = [x for x in inventory if x.get('status') in ['urgent', 'low']]
+    target = BusinessTarget.current()
+    days_in_month = 30
+    daily_target = _inventory_decimal(target.monthly_revenue_target) / Decimal(days_in_month)
+    risks = [x for x in week_products if x.get('quadrant') == 'risk']
+    stars = [x for x in week_products if x.get('quadrant') == 'star']
+    weak = [x for x in week_products if x.get('quadrant') == 'weak']
+
+    return {
+        'today': today,
+        'today_revenue': today_revenue,
+        'today_expenses': today_expenses,
+        'today_waste': today_waste,
+        'today_net': today_product_profit - today_expenses,
+        'week_revenue': week_revenue,
+        'week_product_profit': week_profit,
+        'week_waste': week_waste,
+        'low_stock': low_stock,
+        'risks': risks,
+        'stars': stars,
+        'weak': weak,
+        'daily_sales_target': daily_target,
+        'monthly_revenue_target': _inventory_decimal(target.monthly_revenue_target),
+        'monthly_profit_target': _inventory_decimal(target.monthly_profit_target),
+    }
+
+
+def _management_alerts(snapshot, language):
+    alerts = []
+    if snapshot['daily_sales_target'] > 0 and snapshot['today_revenue'] < snapshot['daily_sales_target']:
+        difference = snapshot['daily_sales_target'] - snapshot['today_revenue']
+        alerts.append({
+            'level': 'warning',
+            'text': _management_text(
+                f'Las ventas de hoy están {difference.quantize(Decimal("0.01"))} € por debajo del objetivo diario.',
+                f'فروش امروز {difference.quantize(Decimal("0.01"))} € کمتر از هدف روزانه است.',
+                f'مبيعات اليوم أقل من الهدف اليومي بمقدار {difference.quantize(Decimal("0.01"))} €.',
+                language,
+            )
+        })
+    for item in snapshot['low_stock'][:3]:
+        qty = item.get('suggested_purchase_quantity', 0)
+        alerts.append({
+            'level': 'danger' if item.get('status') == 'urgent' else 'warning',
+            'text': _management_text(
+                f"Stock bajo: {item['name']}. Compra sugerida: {qty} {item['unit']}.",
+                f"موجودی {item['name']} کم است. خرید پیشنهادی: {qty} {item['unit']}.",
+                f"مخزون {item['name']} منخفض. الشراء المقترح: {qty} {item['unit']}.",
+                language,
+            )
+        })
+    if snapshot['risks']:
+        item = snapshot['risks'][0]
+        alerts.append({
+            'level': 'warning',
+            'text': _management_text(
+                f"{item['name']} vende bien pero su margen está por debajo del objetivo.",
+                f"{item['name']} پرفروش است اما حاشیه سود آن پایین‌تر از هدف است.",
+                f"{item['name']} يبيع جيداً لكن هامش ربحه أقل من الهدف.",
+                language,
+            )
+        })
+    if snapshot['week_revenue'] > 0 and snapshot['week_waste'] > snapshot['week_revenue'] * Decimal('0.05'):
+        alerts.append({
+            'level': 'danger',
+            'text': _management_text(
+                'El coste de mermas de la semana supera el 5 % de las ventas.',
+                'هزینه ضایعات این هفته بیشتر از ۵٪ فروش است.',
+                'تكلفة الهدر هذا الأسبوع تتجاوز 5٪ من المبيعات.',
+                language,
+            )
+        })
+    if not alerts:
+        alerts.append({
+            'level': 'success',
+            'text': _management_text(
+                'No hay alertas críticas en este momento.',
+                'در حال حاضر هشدار مهمی وجود ندارد.',
+                'لا توجد تنبيهات حرجة حالياً.',
+                language,
+            )
+        })
+    return alerts
+
+
+def _management_answer(question, snapshot, language):
+    query = str(question or '').strip().lower()
+    euro = lambda value: f"{_inventory_decimal(value).quantize(Decimal('0.01'))} €"
+
+    if not query:
+        return _management_text(
+            'Pregunta por beneficio, ventas, stock, compras, mermas, productos o socios.',
+            'درباره سود، فروش، انبار، خرید، ضایعات، غذاها یا شریک‌ها سؤال بپرسید.',
+            'اسأل عن الربح أو المبيعات أو المخزون أو المشتريات أو الهدر أو المنتجات أو الشركاء.',
+            language,
+        )
+
+    stock_keys = ['stock', 'inventario', 'compra', 'comprar', 'موجودی', 'انبار', 'خرید', 'مخزون', 'شراء']
+    profit_keys = ['beneficio', 'ganancia', 'rentable', 'sud', 'سود', 'ضرر', 'ربح', 'خسارة']
+    sale_keys = ['venta', 'ventas', 'facturación', 'فروش', 'مبيعات']
+    waste_keys = ['merma', 'desperdicio', 'residuo', 'ضایعات', 'هدر']
+    product_keys = ['producto', 'plato', 'durum', 'kebab', 'غذا', 'محصول', 'منتج', 'طبق']
+    partner_keys = ['saeid', 'ahmed', 'bbva', 'شریک', 'سعید', 'احمد', 'شريك']
+
+    if any(x in query for x in stock_keys):
+        low = snapshot['low_stock']
+        if low:
+            lines = [f"{x['name']}: +{x.get('suggested_purchase_quantity', 0)} {x['unit']}" for x in low[:5]]
+            return _management_text(
+                'Compras sugeridas: ' + '; '.join(lines) + '.',
+                'خریدهای پیشنهادی: ' + '؛ '.join(lines) + '.',
+                'المشتريات المقترحة: ' + '؛ '.join(lines) + '.',
+                language,
+            )
+        return _management_text('El stock actual no tiene alertas de reposición.', 'موجودی فعلی هشدار خرید ندارد.', 'المخزون الحالي لا يحتوي على تنبيهات شراء.', language)
+
+    if any(x in query for x in waste_keys):
+        return _management_text(
+            f"El coste de mermas de los últimos 7 días es {euro(snapshot['week_waste'])}.",
+            f"هزینه ضایعات ۷ روز اخیر {euro(snapshot['week_waste'])} است.",
+            f"تكلفة الهدر خلال آخر 7 أيام هي {euro(snapshot['week_waste'])}.",
+            language,
+        )
+
+    if any(x in query for x in partner_keys):
+        from .models import RestaurantFinancialEntry
+        approved = [RestaurantFinancialEntry.STATUS_APPROVED, RestaurantFinancialEntry.STATUS_REIMBURSED]
+        today = snapshot['today']
+        start = today.replace(day=1)
+        rows = RestaurantFinancialEntry.objects.filter(
+            entry_type=RestaurantFinancialEntry.TYPE_EXPENSE, status__in=approved,
+            entry_date__gte=start, entry_date__lte=today
+        ).values('paid_by').annotate(total=Sum('amount'))
+        parts = {x['paid_by']: x['total'] or Decimal('0.00') for x in rows}
+        return _management_text(
+            f"Gastos pagados este mes — Saeid: {euro(parts.get('saeid', 0))}; Ahmed: {euro(parts.get('ahmed', 0))}; BBVA: {euro(parts.get('bbva', 0))}.",
+            f"هزینه‌های پرداخت‌شده این ماه — سعید: {euro(parts.get('saeid', 0))}؛ احمد: {euro(parts.get('ahmed', 0))}؛ BBVA: {euro(parts.get('bbva', 0))}.",
+            f"المصروفات المدفوعة هذا الشهر — سعيد: {euro(parts.get('saeid', 0))}؛ أحمد: {euro(parts.get('ahmed', 0))}؛ BBVA: {euro(parts.get('bbva', 0))}.",
+            language,
+        )
+
+    if any(x in query for x in product_keys):
+        if snapshot['stars']:
+            item = snapshot['stars'][0]
+            return _management_text(
+                f"Producto recomendado: {item['name']}. Tiene ventas y margen buenos; conviene destacarlo.",
+                f"غذای پیشنهادی: {item['name']}. فروش و حاشیه سود خوبی دارد؛ بهتر است برجسته شود.",
+                f"المنتج المقترح: {item['name']}. لديه مبيعات وهامش ربح جيدان؛ من المناسب إبرازُه.",
+                language,
+            )
+        if snapshot['risks']:
+            item = snapshot['risks'][0]
+            return _management_text(
+                f"Revisar {item['name']}: vende bien, pero el margen está bajo el objetivo.",
+                f"{item['name']} را بررسی کنید: پرفروش است اما حاشیه سود پایین‌تر از هدف است.",
+                f"راجع {item['name']}: يبيع جيداً لكن الهامش أقل من الهدف.",
+                language,
+            )
+
+    if any(x in query for x in profit_keys):
+        return _management_text(
+            f"Resultado estimado de hoy: ingresos {euro(snapshot['today_revenue'])}, gastos registrados {euro(snapshot['today_expenses'])}, beneficio neto estimado {euro(snapshot['today_net'])}.",
+            f"نتیجه تخمینی امروز: فروش {euro(snapshot['today_revenue'])}، هزینه ثبت‌شده {euro(snapshot['today_expenses'])}، سود خالص تخمینی {euro(snapshot['today_net'])}.",
+            f"النتيجة التقديرية اليوم: المبيعات {euro(snapshot['today_revenue'])}، المصروفات المسجلة {euro(snapshot['today_expenses'])}، صافي الربح التقديري {euro(snapshot['today_net'])}.",
+            language,
+        )
+
+    if any(x in query for x in sale_keys):
+        return _management_text(
+            f"Ventas de hoy: {euro(snapshot['today_revenue'])}. Objetivo diario actual: {euro(snapshot['daily_sales_target'])}.",
+            f"فروش امروز: {euro(snapshot['today_revenue'])}. هدف روزانه فعلی: {euro(snapshot['daily_sales_target'])}.",
+            f"مبيعات اليوم: {euro(snapshot['today_revenue'])}. الهدف اليومي الحالي: {euro(snapshot['daily_sales_target'])}.",
+            language,
+        )
+
+    return _management_text(
+        'Puedo responder con datos sobre beneficio, ventas, inventario, compras sugeridas, mermas, productos y socios.',
+        'می‌توانم با داده‌های واقعی درباره سود، فروش، انبار، خرید پیشنهادی، ضایعات، غذاها و شریک‌ها پاسخ بدهم.',
+        'يمكنني الإجابة بالبيانات الفعلية عن الربح والمبيعات والمخزون والمشتريات المقترحة والهدر والمنتجات والشركاء.',
+        language,
+    )
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_management_daily_brief(request):
+    language = _management_language(request.query_params.get('language', 'es'))
+    snapshot = _management_snapshot()
+    alerts = _management_alerts(snapshot, language)
+    suggestion = _management_answer('producto', snapshot, language)
+    return Response({
+        'date': snapshot['today'].isoformat(),
+        'summary': {
+            'sales': float(snapshot['today_revenue']),
+            'registered_expenses': float(snapshot['today_expenses']),
+            'waste_cost': float(snapshot['today_waste']),
+            'estimated_net_profit': float(snapshot['today_net']),
+            'daily_sales_target': float(snapshot['daily_sales_target']),
+        },
+        'alerts': alerts,
+        'recommendation': suggestion,
+    })
+
+
+@api_view(['POST'])
+@admin_token_required
+def admin_management_assistant(request):
+    language = _management_language((request.data or {}).get('language', 'es'))
+    question = str((request.data or {}).get('question') or '').strip()
+    snapshot = _management_snapshot()
+    return Response({
+        'answer': _management_answer(question, snapshot, language),
+        'alerts': _management_alerts(snapshot, language),
+        'data_timestamp': timezone.now().isoformat(),
+    })
+
+
+@api_view(['POST'])
+@admin_token_required
+def admin_management_send_telegram_brief(request):
+    language = _management_language((request.data or {}).get('language', 'es'))
+    snapshot = _management_snapshot()
+    alerts = _management_alerts(snapshot, language)
+    summary = _management_text(
+        f"📊 Resumen de hoy\nVentas: {snapshot['today_revenue'].quantize(Decimal('0.01'))} €\nBeneficio neto estimado: {snapshot['today_net'].quantize(Decimal('0.01'))} €",
+        f"📊 خلاصه امروز\nفروش: {snapshot['today_revenue'].quantize(Decimal('0.01'))} €\nسود خالص تخمینی: {snapshot['today_net'].quantize(Decimal('0.01'))} €",
+        f"📊 ملخص اليوم\nالمبيعات: {snapshot['today_revenue'].quantize(Decimal('0.01'))} €\nصافي الربح التقديري: {snapshot['today_net'].quantize(Decimal('0.01'))} €",
+        language,
+    )
+    message = 'Casa de Kebab Turco\n' + summary + '\n\n' + '\n'.join(f"• {x['text']}" for x in alerts[:4])
+    ok = send_telegram_message(message)
+    return Response({'success': bool(ok), 'message': message})
+
+# ============================================================
+# v25 Professional reports: preview, CSV, XLSX and PDF
+# PDF generated server-side is intentionally Spanish-only because the
+# standard ReportLab fonts do not reliably shape Persian/Arabic text.
+# For Persian/Arabic use the multilingual on-screen report and browser print.
+# ============================================================
+
+def _professional_report_language(value):
+    return value if value in ('es', 'fa', 'ar') else 'es'
+
+
+def _professional_report_range(request):
+    from django.utils.dateparse import parse_date
+    from datetime import timedelta
+
+    today = timezone.localdate()
+    date_from = parse_date(str(request.query_params.get('date_from') or '')) or (today - timedelta(days=29))
+    date_to = parse_date(str(request.query_params.get('date_to') or '')) or today
+    if date_from > date_to:
+        raise ValueError('La fecha inicial no puede ser posterior a la fecha final.')
+    if (date_to - date_from).days > 366:
+        raise ValueError('El periodo máximo es de 366 días.')
+    return date_from, date_to
+
+
+def _professional_report_labels(language):
+    labels = {
+        'es': {
+            'title': 'Casa de Kebab Turco — Informe profesional',
+            'period': 'Periodo',
+            'financial': 'Informe financiero',
+            'inventory': 'Informe de inventario',
+            'profitability': 'Informe de rentabilidad',
+            'partners': 'Informe de socios',
+            'sales': 'Ventas',
+            'expenses': 'Gastos registrados',
+            'waste': 'Mermas',
+            'net': 'Resultado neto estimado',
+            'ingredient': 'Ingrediente',
+            'stock': 'Stock actual',
+            'unit_cost': 'Coste unitario',
+            'movement': 'Movimiento',
+            'product': 'Producto',
+            'units': 'Unidades',
+            'revenue': 'Ingresos',
+            'cost': 'Coste',
+            'profit': 'Beneficio',
+            'margin': 'Margen',
+            'partner': 'Pagado por',
+            'amount': 'Importe',
+        },
+        'fa': {
+            'title': 'Casa de Kebab Turco — گزارش حرفه‌ای',
+            'period': 'بازه',
+            'financial': 'گزارش مالی',
+            'inventory': 'گزارش انبار',
+            'profitability': 'گزارش سودآوری',
+            'partners': 'گزارش شریک‌ها',
+            'sales': 'فروش',
+            'expenses': 'هزینه‌های ثبت‌شده',
+            'waste': 'ضایعات',
+            'net': 'نتیجه خالص تخمینی',
+            'ingredient': 'ماده اولیه',
+            'stock': 'موجودی فعلی',
+            'unit_cost': 'هزینه واحد',
+            'movement': 'گردش',
+            'product': 'محصول',
+            'units': 'تعداد',
+            'revenue': 'درآمد',
+            'cost': 'هزینه',
+            'profit': 'سود',
+            'margin': 'حاشیه سود',
+            'partner': 'پرداخت‌کننده',
+            'amount': 'مبلغ',
+        },
+        'ar': {
+            'title': 'Casa de Kebab Turco — تقرير مهني',
+            'period': 'الفترة',
+            'financial': 'التقرير المالي',
+            'inventory': 'تقرير المخزون',
+            'profitability': 'تقرير الربحية',
+            'partners': 'تقرير الشركاء',
+            'sales': 'المبيعات',
+            'expenses': 'المصروفات المسجلة',
+            'waste': 'الهدر',
+            'net': 'صافي النتيجة التقديرية',
+            'ingredient': 'المادة',
+            'stock': 'المخزون الحالي',
+            'unit_cost': 'تكلفة الوحدة',
+            'movement': 'الحركة',
+            'product': 'المنتج',
+            'units': 'الوحدات',
+            'revenue': 'الإيرادات',
+            'cost': 'التكلفة',
+            'profit': 'الربح',
+            'margin': 'الهامش',
+            'partner': 'المدفوع بواسطة',
+            'amount': 'المبلغ',
+        },
+    }
+    return labels[language]
+
+
+def _professional_report_payload(kind, date_from, date_to, language):
+    from .models import RestaurantFinancialEntry, InventoryMovement, Ingredient
+
+    labels = _professional_report_labels(language)
+    approved = [
+        RestaurantFinancialEntry.STATUS_APPROVED,
+        RestaurantFinancialEntry.STATUS_REIMBURSED,
+    ]
+    title_key = kind if kind in ('financial', 'inventory', 'profitability', 'partners') else 'financial'
+    result = {
+        'kind': title_key,
+        'title': labels[title_key],
+        'labels': labels,
+        'period': {'date_from': date_from.isoformat(), 'date_to': date_to.isoformat()},
+        'summary': [],
+        'rows': [],
+    }
+
+    if title_key == 'financial':
+        orders = Order.objects.filter(
+            created_at__date__gte=date_from,
+            created_at__date__lte=date_to,
+        ).exclude(status=Order.STATUS_CANCELLED)
+        sales = orders.aggregate(total=Sum('total'))['total'] or Decimal('0.00')
+        expenses = RestaurantFinancialEntry.objects.filter(
+            entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+            status__in=approved,
+            entry_date__gte=date_from,
+            entry_date__lte=date_to,
+        )
+        expenses_total = expenses.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        waste = InventoryMovement.objects.filter(
+            movement_type=InventoryMovement.TYPE_WASTE,
+            occurred_at__date__gte=date_from,
+            occurred_at__date__lte=date_to,
+        ).aggregate(total=Sum('total_cost'))['total'] or Decimal('0.00')
+        result['summary'] = [
+            {'label': labels['sales'], 'value': float(sales)},
+            {'label': labels['expenses'], 'value': float(expenses_total)},
+            {'label': labels['waste'], 'value': float(waste)},
+            {'label': labels['net'], 'value': float((sales - expenses_total - waste).quantize(Decimal('0.01')))},
+        ]
+        result['rows'] = [
+            {
+                'date': row.entry_date.isoformat(),
+                'title': row.title,
+                'category': row.category.name if row.category_id else '',
+                'paid_by': row.paid_by,
+                'amount': float(row.amount),
+                'invoice_number': row.invoice_number or '',
+            }
+            for row in expenses.select_related('category').order_by('-entry_date', '-id')
+        ]
+        result['columns'] = [
+            ('date', 'Fecha'), ('title', 'Concepto'), ('category', 'Categoría'),
+            ('paid_by', 'Pagado por'), ('amount', 'Importe (€)'), ('invoice_number', 'Factura'),
+        ]
+
+    elif title_key == 'inventory':
+        ingredients = Ingredient.objects.filter(is_active=True).order_by('name')
+        movements = InventoryMovement.objects.filter(
+            occurred_at__date__gte=date_from,
+            occurred_at__date__lte=date_to,
+        ).select_related('ingredient').order_by('-occurred_at', '-id')
+        result['summary'] = [
+            {'label': 'Ingredientes activos', 'value': ingredients.count()},
+            {'label': 'Movimientos del periodo', 'value': movements.count()},
+        ]
+        result['rows'] = [
+            {
+                'ingredient': row.ingredient.name,
+                'type': row.movement_type,
+                'quantity_delta': float(row.quantity_delta),
+                'unit': row.ingredient.unit,
+                'unit_cost': float(row.unit_cost_snapshot),
+                'total_cost': float(row.total_cost),
+                'supplier': row.supplier_name or '',
+                'date': row.occurred_at.strftime('%Y-%m-%d %H:%M'),
+            }
+            for row in movements
+        ]
+        result['inventory_stock'] = [
+            {
+                'ingredient': item.name,
+                'stock': float(item.stock_quantity),
+                'unit': item.unit,
+                'unit_cost': float(item.unit_cost),
+                'reorder_level': float(item.reorder_level),
+            }
+            for item in ingredients
+        ]
+        result['columns'] = [
+            ('ingredient', 'Ingrediente'), ('type', 'Movimiento'), ('quantity_delta', 'Cambio'),
+            ('unit', 'Unidad'), ('unit_cost', 'Coste/u'), ('total_cost', 'Coste total'),
+            ('supplier', 'Proveedor'), ('date', 'Fecha'),
+        ]
+
+    elif title_key == 'profitability':
+        rows = _profit_intelligence_product_rows(date_from, date_to)
+        result['rows'] = rows
+        total_revenue = sum((_inventory_decimal(row['revenue']) for row in rows), Decimal('0.00'))
+        total_profit = sum((_inventory_decimal(row['profit']) for row in rows if row['profit'] is not None), Decimal('0.00'))
+        result['summary'] = [
+            {'label': labels['revenue'], 'value': float(total_revenue)},
+            {'label': labels['profit'], 'value': float(total_profit.quantize(Decimal('0.01')))},
+            {'label': 'Productos con receta completa', 'value': sum(1 for row in rows if row['has_recipe'])},
+        ]
+        result['columns'] = [
+            ('name', 'Producto'), ('units', 'Unidades'), ('revenue', 'Ingresos (€)'),
+            ('unit_cost', 'Coste/u (€)'), ('total_cost', 'Coste total (€)'),
+            ('profit', 'Beneficio (€)'), ('margin_percent', 'Margen %'), ('quadrant', 'Diagnóstico'),
+        ]
+
+    else:
+        entries = RestaurantFinancialEntry.objects.filter(
+            entry_type=RestaurantFinancialEntry.TYPE_EXPENSE,
+            status__in=approved,
+            entry_date__gte=date_from,
+            entry_date__lte=date_to,
+        ).values('paid_by').annotate(amount=Sum('amount')).order_by('paid_by')
+        result['rows'] = [{'party': row['paid_by'], 'amount': float(row['amount'] or 0)} for row in entries]
+        result['summary'] = [{'label': 'Total gastos de socios y BBVA', 'value': float(sum((_inventory_decimal(x['amount']) for x in result['rows']), Decimal('0.00')))}]
+        result['columns'] = [('party', 'Pagado por'), ('amount', 'Importe (€)')]
+
+    return result
+
+
+def _professional_csv_response(payload):
+    import csv
+    from io import StringIO
+    from django.http import HttpResponse
+
+    stream = StringIO()
+    writer = csv.writer(stream)
+    writer.writerow([payload['title']])
+    writer.writerow([f"{payload['period']['date_from']} — {payload['period']['date_to']}"])
+    writer.writerow([])
+    for row in payload['summary']:
+        writer.writerow([row['label'], row['value']])
+    writer.writerow([])
+    writer.writerow([title for _, title in payload['columns']])
+    for row in payload['rows']:
+        writer.writerow([row.get(key, '') for key, _ in payload['columns']])
+    response = HttpResponse(stream.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = f"attachment; filename=casadekebab_{payload['kind']}_{payload['period']['date_from']}_{payload['period']['date_to']}.csv"
+    return response
+
+
+def _professional_xlsx_response(payload):
+    from io import BytesIO
+    from django.http import HttpResponse
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return Response({'detail': 'Falta openpyxl. Instala: pip install openpyxl'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = payload['kind'][:31]
+    sheet.append([payload['title']])
+    sheet.append([f"{payload['period']['date_from']} — {payload['period']['date_to']}"])
+    sheet.append([])
+    for row in payload['summary']:
+        sheet.append([row['label'], row['value']])
+    sheet.append([])
+    sheet.append([title for _, title in payload['columns']])
+    for row in payload['rows']:
+        sheet.append([row.get(key, '') for key, _ in payload['columns']])
+
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, size=14)
+    header_row = 4 + len(payload['summary']) + 1
+    for cell in sheet[header_row]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='8F1D18')
+        cell.alignment = Alignment(horizontal='center')
+    for column in range(1, sheet.max_column + 1):
+        width = min(42, max(12, max(len(str(sheet.cell(row, column).value or '')) for row in range(1, sheet.max_row + 1)) + 2))
+        sheet.column_dimensions[get_column_letter(column)].width = width
+    sheet.freeze_panes = f'A{header_row + 1}'
+
+    output = BytesIO()
+    workbook.save(output)
+    response = HttpResponse(
+        output.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f"attachment; filename=casadekebab_{payload['kind']}_{payload['period']['date_from']}_{payload['period']['date_to']}.xlsx"
+    return response
+
+
+def _professional_pdf_response(payload):
+    from io import BytesIO
+    from django.http import HttpResponse
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    except ImportError:
+        return Response({'detail': 'Falta reportlab. Instala: pip install reportlab'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    # Use Spanish PDF labels to ensure reliable embedded-font output.
+    spanish_payload = _professional_report_payload(payload['kind'], timezone.datetime.fromisoformat(payload['period']['date_from']).date(), timezone.datetime.fromisoformat(payload['period']['date_to']).date(), 'es')
+    output = BytesIO()
+    doc = SimpleDocTemplate(output, pagesize=A4, rightMargin=14*mm, leftMargin=14*mm, topMargin=14*mm, bottomMargin=14*mm)
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph('Casa de Kebab Turco', styles['Title']),
+        Paragraph(spanish_payload['title'], styles['Heading2']),
+        Paragraph(f"Periodo: {spanish_payload['period']['date_from']} — {spanish_payload['period']['date_to']}", styles['Normal']),
+        Spacer(1, 8),
+    ]
+    summary_rows = [[row['label'], f"{_inventory_decimal(row['value']).quantize(Decimal('0.01')) if isinstance(row['value'], (int, float)) else row['value']}"] for row in spanish_payload['summary']]
+    if summary_rows:
+        table = Table(summary_rows, colWidths=[115*mm, 55*mm])
+        table.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.3, colors.HexColor('#D7C7BB')),
+            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#F7F0EA')),
+            ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
+            ('PADDING', (0,0), (-1,-1), 6),
+        ]))
+        story.extend([table, Spacer(1, 10)])
+
+    raw_rows = [[title for _, title in spanish_payload['columns']]]
+    for row in spanish_payload['rows'][:200]:
+        raw_rows.append([str(row.get(key, ''))[:46] for key, _ in spanish_payload['columns']])
+    if len(raw_rows) > 1:
+        widths = [170*mm / max(1, len(spanish_payload['columns']))] * len(spanish_payload['columns'])
+        table = Table(raw_rows, colWidths=widths, repeatRows=1)
+        table.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.25, colors.HexColor('#DDDDDD')),
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#8F1D18')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,-1), 7),
+            ('PADDING', (0,0), (-1,-1), 4),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ]))
+        story.append(table)
+    doc.build(story)
+    response = HttpResponse(output.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f"attachment; filename=casadekebab_{payload['kind']}_{payload['period']['date_from']}_{payload['period']['date_to']}.pdf"
+    return response
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_professional_reports_preview(request):
+    try:
+        date_from, date_to = _professional_report_range(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    kind = str(request.query_params.get('kind') or 'financial').strip()
+    language = _professional_report_language(request.query_params.get('language') or 'es')
+    return Response(_professional_report_payload(kind, date_from, date_to, language))
+
+
+@api_view(['GET'])
+@admin_token_required
+def admin_professional_reports_export(request):
+    try:
+        date_from, date_to = _professional_report_range(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    kind = str(request.query_params.get('kind') or 'financial').strip()
+    language = _professional_report_language(request.query_params.get('language') or 'es')
+    export_format = str(request.query_params.get('format') or 'csv').strip().lower()
+    payload = _professional_report_payload(kind, date_from, date_to, language)
+    if export_format == 'csv':
+        return _professional_csv_response(payload)
+    if export_format == 'xlsx':
+        return _professional_xlsx_response(payload)
+    if export_format == 'pdf':
+        return _professional_pdf_response(payload)
+    return Response({'detail': 'Formato no válido. Usa csv, xlsx o pdf.'}, status=status.HTTP_400_BAD_REQUEST)
 

@@ -643,17 +643,40 @@ class Order(models.Model):
 
 
 
-    def save(self, *args, **kwargs):
+def save(self, *args, **kwargs):
+    if not self.order_code:
+        last_order = (
+            Order.objects
+            .exclude(order_code='')
+            .order_by('-id')
+            .first()
+        )
 
-        if not self.order_code:
+        next_num = 1
 
-            next_num = Order.objects.count() + 1
+        if last_order and last_order.order_code:
+            try:
+                current_num = int(
+                    last_order.order_code.split('-')[-1]
+                )
+                next_num = current_num + 1
+            except (ValueError, IndexError):
+                next_num = last_order.id + 1
 
-            self.order_code = f'CDKT-{next_num:06d}'
+        while Order.objects.filter(
+            order_code=f'CDKT-{next_num:06d}'
+        ).exists():
+            next_num += 1
 
-        self.total = (self.subtotal or Decimal('0.00')) + (self.delivery_fee or Decimal('0.00')) - (self.discount or Decimal('0.00'))
+        self.order_code = f'CDKT-{next_num:06d}'
 
-        super().save(*args, **kwargs)
+    self.total = (
+        (self.subtotal or Decimal('0.00'))
+        + (self.delivery_fee or Decimal('0.00'))
+        - (self.discount or Decimal('0.00'))
+    )
+
+    super().save(*args, **kwargs)
 
 
 
@@ -1099,6 +1122,8 @@ class RestaurantFinancialEntry(models.Model):
 
     TYPE_EXPENSE = 'expense'
 
+    TYPE_INCOME = 'income'
+
     TYPE_CONTRIBUTION = 'contribution'
 
     TYPE_SETTLEMENT = 'settlement'
@@ -1106,6 +1131,8 @@ class RestaurantFinancialEntry(models.Model):
     TYPE_CHOICES = [
 
         (TYPE_EXPENSE, 'Gasto'),
+
+        (TYPE_INCOME, 'Ingreso manual'),
 
         (TYPE_CONTRIBUTION, 'AportaciÃ³n a BBVA'),
 
@@ -1348,3 +1375,200 @@ class SystemBackup(models.Model):
     def __str__(self):
 
         return f'{self.get_backup_type_display()} - {self.created_at:%Y-%m-%d %H:%M}'
+
+# v18 real product profitability (no Category changes)
+class Ingredient(models.Model):
+    UNIT_GRAM = 'g'
+    UNIT_ML = 'ml'
+    UNIT_UNIT = 'unit'
+    UNIT_CHOICES = [
+        (UNIT_GRAM, 'Gramos'),
+        (UNIT_ML, 'Mililitros'),
+        (UNIT_UNIT, 'Unidades'),
+    ]
+
+    name = models.CharField(max_length=140, unique=True)
+    unit = models.CharField(max_length=12, choices=UNIT_CHOICES, default=UNIT_GRAM)
+    unit_cost = models.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0.0000'))],
+        help_text='Coste por la unidad elegida: g, ml o unidad.'
+    )
+    stock_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    reorder_level = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    supplier_name = models.CharField(max_length=160, blank=True, default='')
+    # Beverage stock is split into fridge and outside-fridge locations.
+    is_beverage = models.BooleanField(default=False, db_index=True)
+    fridge_stock = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    fridge_alert_level = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('2.00'))
+    total_alert_level = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('8.00'))
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return f'{self.name} ({self.unit})'
+
+
+class ProductCostProfile(models.Model):
+    menu_item = models.OneToOneField(MenuItem, on_delete=models.CASCADE, related_name='cost_profile')
+    packaging_cost = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal('0.00'))
+    fixed_cost = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        help_text='Coste fijo adicional por unidad: servilletas, energía u otros.'
+    )
+    target_margin_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('55.00'))
+    notes = models.TextField(blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['menu_item__name_es']
+
+    def __str__(self):
+        return f'Coste: {self.menu_item.name_es}'
+
+
+class RecipeIngredient(models.Model):
+    profile = models.ForeignKey(ProductCostProfile, on_delete=models.CASCADE, related_name='components')
+    ingredient = models.ForeignKey(Ingredient, on_delete=models.PROTECT, related_name='recipe_components')
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        validators=[MinValueValidator(Decimal('0.001'))],
+        help_text='Cantidad usada por una unidad del producto, en la misma unidad del ingrediente.'
+    )
+
+    class Meta:
+        ordering = ['ingredient__name']
+        constraints = [
+            models.UniqueConstraint(fields=['profile', 'ingredient'], name='unique_recipe_ingredient_per_profile')
+        ]
+
+    @property
+    def line_cost(self):
+        return (self.quantity or Decimal('0.000')) * (self.ingredient.unit_cost or Decimal('0.0000'))
+
+    def __str__(self):
+        return f'{self.profile.menu_item.name_es} - {self.ingredient.name}'
+
+# v21 Smart Finance & Inventory Phase 1
+class RecurringExpenseRule(models.Model):
+    FREQUENCY_DAILY = 'daily'
+    FREQUENCY_WEEKLY = 'weekly'
+    FREQUENCY_MONTHLY = 'monthly'
+    FREQUENCY_CHOICES = [
+        (FREQUENCY_DAILY, 'Diario'),
+        (FREQUENCY_WEEKLY, 'Semanal'),
+        (FREQUENCY_MONTHLY, 'Mensual'),
+    ]
+
+    title = models.CharField(max_length=180)
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    frequency = models.CharField(max_length=12, choices=FREQUENCY_CHOICES, default=FREQUENCY_MONTHLY)
+    category = models.ForeignKey(
+        ExpenseCategory,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='recurring_rules',
+    )
+    paid_by = models.CharField(
+        max_length=20,
+        choices=RestaurantFinancialEntry.PARTY_CHOICES,
+        default=RestaurantFinancialEntry.PARTY_BBVA,
+    )
+    start_date = models.DateField(default=timezone.localdate)
+    end_date = models.DateField(blank=True, null=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    notes = models.TextField(blank=True, default='')
+    created_by_username = models.CharField(max_length=150, blank=True, default='')
+    updated_by_username = models.CharField(max_length=150, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['title', 'id']
+        indexes = [
+            models.Index(fields=['is_active', 'start_date']),
+        ]
+
+    def __str__(self):
+        return f'{self.title} ({self.frequency})'
+
+# v22 Real Inventory, purchases, waste and automatic consumption
+class InventoryMovement(models.Model):
+    TYPE_PURCHASE = 'purchase'
+    TYPE_SALE = 'sale'
+    TYPE_WASTE = 'waste'
+    TYPE_ADJUSTMENT = 'adjustment'
+    TYPE_FRIDGE_TRANSFER = 'fridge_transfer'
+    TYPE_CHOICES = [
+        (TYPE_PURCHASE, 'Compra'),
+        (TYPE_SALE, 'Consumo por venta'),
+        (TYPE_WASTE, 'Merma / desperdicio'),
+        (TYPE_ADJUSTMENT, 'Ajuste manual'),
+        (TYPE_FRIDGE_TRANSFER, 'Traslado al frigorífico'),
+    ]
+
+    ingredient = models.ForeignKey(Ingredient, on_delete=models.PROTECT, related_name='inventory_movements')
+    movement_type = models.CharField(max_length=16, choices=TYPE_CHOICES, db_index=True)
+    quantity_delta = models.DecimalField(max_digits=12, decimal_places=3)
+    unit_cost_snapshot = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0.0000'))
+    total_cost = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    # Purchase tax details. total_cost is the net/base cost; total_amount_with_iva is the paid amount.
+    iva_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'))
+    iva_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    total_amount_with_iva = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    order_item = models.ForeignKey('OrderItem', on_delete=models.SET_NULL, null=True, blank=True, related_name='inventory_movements')
+    financial_entry = models.ForeignKey(RestaurantFinancialEntry, on_delete=models.SET_NULL, null=True, blank=True, related_name='inventory_movements')
+    supplier_name = models.CharField(max_length=160, blank=True, default='')
+    invoice_number = models.CharField(max_length=100, blank=True, default='')
+    reference = models.CharField(max_length=180, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+    created_by_username = models.CharField(max_length=150, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-occurred_at', '-id']
+        indexes = [
+            models.Index(fields=['ingredient', 'occurred_at']),
+            models.Index(fields=['movement_type', 'occurred_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['order_item', 'ingredient', 'movement_type'],
+                name='unique_inventory_sale_per_order_item_ingredient_type',
+            )
+        ]
+
+    def __str__(self):
+        return f'{self.ingredient.name} {self.movement_type} {self.quantity_delta}'
+
+# v23 Profit Intelligence goals
+class BusinessTarget(models.Model):
+    monthly_revenue_target = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    monthly_profit_target = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    updated_by_username = models.CharField(max_length=150, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Business target'
+        verbose_name_plural = 'Business targets'
+
+    @classmethod
+    def current(cls):
+        obj, _ = cls.objects.get_or_create(id=1)
+        return obj
+
