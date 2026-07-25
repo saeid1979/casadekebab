@@ -875,7 +875,7 @@ function App() {
   const [customerHighlights, setCustomerHighlights] = useState({ sales_by_item: {}, top_seller_id: null, lowest_price_item_id: null, top_seller_units: 0 });
   const [customerMenuSort, setCustomerMenuSort] = useState('popular');
   const isAuthenticatedAdmin = Boolean(getAdminToken() && getAdminUser());
-  const isAdminCollection = false;
+  const isAdminCollection = isAuthenticatedAdmin && form.delivery_type === 'collection';
 
   useEffect(() => {
     axios.get(`${API_BASE}/menu/`).then(res => {
