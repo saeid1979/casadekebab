@@ -4208,9 +4208,7 @@ function DashboardApp() {
   const [items, setItems] = useState([]);
   const [settings, setSettings] = useState(null);
   const [message, setMessage] = useState('');
-  const [orderAlarmSoundEnabled, setOrderAlarmSoundEnabled] = useState(
-    () => localStorage.getItem('cdkt_order_alarm_sound') === 'on'
-  );
+  const [orderAlarmSoundEnabled, setOrderAlarmSoundEnabled] = useState(false);
   const orderAlarmAudioContextRef = useRef(null);
   const orderAlarmIntervalRef = useRef(null);
   const emptyRiderForm = {
@@ -4531,25 +4529,22 @@ function DashboardApp() {
 
   function playAdminOrderAlarm() {
     try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return false;
-      const ctx = orderAlarmAudioContextRef.current || new AudioCtx();
-      orderAlarmAudioContextRef.current = ctx;
-      if (ctx.state === 'suspended') ctx.resume();
+      const ctx = orderAlarmAudioContextRef.current;
+      if (!ctx || ctx.state !== 'running') return false;
 
-      const start = ctx.currentTime;
+      const start = ctx.currentTime + 0.02;
       [0, 0.22, 0.44, 0.78].forEach((offset, index) => {
         const oscillator = ctx.createOscillator();
         const gain = ctx.createGain();
         oscillator.type = index === 3 ? 'square' : 'sine';
         oscillator.frequency.setValueAtTime(index % 2 === 0 ? 1046.5 : 880, start + offset);
         gain.gain.setValueAtTime(0.0001, start + offset);
-        gain.gain.exponentialRampToValueAtTime(0.28, start + offset + 0.025);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.18);
+        gain.gain.exponentialRampToValueAtTime(0.36, start + offset + 0.025);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.19);
         oscillator.connect(gain);
         gain.connect(ctx.destination);
         oscillator.start(start + offset);
-        oscillator.stop(start + offset + 0.2);
+        oscillator.stop(start + offset + 0.21);
       });
       return true;
     } catch (err) {
@@ -4558,13 +4553,40 @@ function DashboardApp() {
     }
   }
 
-  function enableAdminOrderAlarmSound() {
-    const ok = playAdminOrderAlarm();
-    localStorage.setItem('cdkt_order_alarm_sound', 'on');
-    setOrderAlarmSoundEnabled(true);
-    setMessage(ok
-      ? 'Alarma sonora de pedidos activada.'
-      : 'Alarma visual activada. El navegador bloqueó el sonido; pulsa otra vez el botón.');
+  async function enableAdminOrderAlarmSound() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) {
+        setMessage('Este navegador no permite la alarma sonora Web Audio.');
+        return;
+      }
+
+      let ctx = orderAlarmAudioContextRef.current;
+      if (!ctx || ctx.state === 'closed') {
+        ctx = new AudioCtx();
+        orderAlarmAudioContextRef.current = ctx;
+      }
+
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      if (ctx.state !== 'running') {
+        setOrderAlarmSoundEnabled(false);
+        setMessage('Chrome bloqueó el sonido. Permite Sonido para este sitio y vuelve a pulsar Activar alarma.');
+        return;
+      }
+
+      setOrderAlarmSoundEnabled(true);
+      const ok = playAdminOrderAlarm();
+      setMessage(ok
+        ? 'Alarma sonora activada. Debes oír ahora el sonido de prueba.'
+        : 'No se pudo reproducir el sonido de prueba.');
+    } catch (err) {
+      console.warn('ORDER_ALARM_ENABLE_ERROR', err);
+      setOrderAlarmSoundEnabled(false);
+      setMessage('No se pudo activar el sonido. Revisa el permiso de Sonido del sitio.');
+    }
   }
 
   function stopAdminOrderAlarmTimer() {
@@ -5074,6 +5096,7 @@ function DashboardApp() {
           {new Date(currentAlarmOrder.created_at).toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit' })}
         </p>
         {pendingClientOrders.length > 1 && <small>Hay {pendingClientOrders.length} pedidos nuevos pendientes de aceptar.</small>}
+        {!orderAlarmSoundEnabled && <small>⚠ Pulsa “Activar sonido” arriba para oír la alarma.</small>}
       </div>
       <div className="admin-order-alarm-actions">
         <button type="button" className="alarm-view" onClick={() => setTab('orders')}>Ver pedido</button>
@@ -5099,7 +5122,7 @@ function DashboardApp() {
             className={`mini-action admin-alarm-toggle ${orderAlarmSoundEnabled ? 'enabled' : ''}`}
             onClick={enableAdminOrderAlarmSound}
           >
-            {orderAlarmSoundEnabled ? '🔊 Alarma activa' : '🔕 Activar alarma'}
+            {orderAlarmSoundEnabled ? '🔊 Alarma activa' : '🔕 Activar sonido'}
           </button>
           <button className="mini-action" onClick={loadAdminPanel}>Actualizar ahora</button>
         </div>
