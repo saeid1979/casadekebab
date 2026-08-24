@@ -4208,6 +4208,11 @@ function DashboardApp() {
   const [items, setItems] = useState([]);
   const [settings, setSettings] = useState(null);
   const [message, setMessage] = useState('');
+  const [orderAlarmSoundEnabled, setOrderAlarmSoundEnabled] = useState(
+    () => localStorage.getItem('cdkt_order_alarm_sound') === 'on'
+  );
+  const orderAlarmAudioContextRef = useRef(null);
+  const orderAlarmIntervalRef = useRef(null);
   const emptyRiderForm = {
     id: null,
     name: '',
@@ -4524,6 +4529,51 @@ function DashboardApp() {
     }
   }
 
+  function playAdminOrderAlarm() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return false;
+      const ctx = orderAlarmAudioContextRef.current || new AudioCtx();
+      orderAlarmAudioContextRef.current = ctx;
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const start = ctx.currentTime;
+      [0, 0.22, 0.44, 0.78].forEach((offset, index) => {
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.type = index === 3 ? 'square' : 'sine';
+        oscillator.frequency.setValueAtTime(index % 2 === 0 ? 1046.5 : 880, start + offset);
+        gain.gain.setValueAtTime(0.0001, start + offset);
+        gain.gain.exponentialRampToValueAtTime(0.28, start + offset + 0.025);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.18);
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.start(start + offset);
+        oscillator.stop(start + offset + 0.2);
+      });
+      return true;
+    } catch (err) {
+      console.warn('ORDER_ALARM_AUDIO_ERROR', err);
+      return false;
+    }
+  }
+
+  function enableAdminOrderAlarmSound() {
+    const ok = playAdminOrderAlarm();
+    localStorage.setItem('cdkt_order_alarm_sound', 'on');
+    setOrderAlarmSoundEnabled(true);
+    setMessage(ok
+      ? 'Alarma sonora de pedidos activada.'
+      : 'Alarma visual activada. El navegador bloqueó el sonido; pulsa otra vez el botón.');
+  }
+
+  function stopAdminOrderAlarmTimer() {
+    if (orderAlarmIntervalRef.current) {
+      window.clearInterval(orderAlarmIntervalRef.current);
+      orderAlarmIntervalRef.current = null;
+    }
+  }
+
   async function loadAdminPanel() {
     try {
       const [summaryRes, ordersRes, ridersRes, customersRes, catRes, itemRes, settingsRes, accountingRes, entriesRes, expenseCategoriesRes, healthRes, backupsRes] = await Promise.all([
@@ -4567,7 +4617,7 @@ function DashboardApp() {
 
   useEffect(() => {
     loadAdminPanel();
-    const timer = setInterval(loadAdminPanel, 15000);
+    const timer = setInterval(loadAdminPanel, 5000);
     return () => clearInterval(timer);
   }, []);
 
@@ -4946,6 +4996,35 @@ function DashboardApp() {
   }
 
   const activeOrders = orders.filter(o => !['delivered','cancelled'].includes(o.status));
+  const pendingClientOrders = orders.filter(order =>
+    order.status === 'pending' && order.admin_collection !== true
+  );
+  const currentAlarmOrder = pendingClientOrders[0] || null;
+
+  useEffect(() => {
+    stopAdminOrderAlarmTimer();
+
+    if (!currentAlarmOrder) {
+      document.title = getPageTitle();
+      return undefined;
+    }
+
+    document.title = `🔔 ${pendingClientOrders.length} pedido${pendingClientOrders.length === 1 ? '' : 's'} pendiente${pendingClientOrders.length === 1 ? '' : 's'} | Casa de Kebab Turco`;
+
+    if (!orderAlarmSoundEnabled) return undefined;
+
+    playAdminOrderAlarm();
+    orderAlarmIntervalRef.current = window.setInterval(() => {
+      playAdminOrderAlarm();
+    }, 3000);
+
+    return () => stopAdminOrderAlarmTimer();
+  }, [orderAlarmSoundEnabled, currentAlarmOrder?.order_code, pendingClientOrders.length]);
+
+  useEffect(() => () => {
+    stopAdminOrderAlarmTimer();
+    try { orderAlarmAudioContextRef.current?.close?.(); } catch (err) {}
+  }, []);
   const filteredFinancialEntries = financialEntries.filter(entry => {
     const matchesSearch = !accountingSearch.trim() || [
       entry.title,
@@ -4982,6 +5061,31 @@ function DashboardApp() {
       <button dataRoles="admin" onClick={() => window.location.href='/settings-admin'}>Ajustes</button>
     </Header>
     {message && <div className="toast">{message}</div>}
+    {currentAlarmOrder && <aside className="admin-order-alarm" role="alert" aria-live="assertive">
+      <div className="admin-order-alarm-icon">🔔</div>
+      <div className="admin-order-alarm-copy">
+        <span className="admin-order-alarm-kicker">NUEVO PEDIDO DEL CLIENTE</span>
+        <h2>{currentAlarmOrder.order_code || 'Pedido nuevo'}</h2>
+        <p>
+          {currentAlarmOrder.delivery_type === 'delivery' ? '🛵 Entrega' : '🛍️ Recoger'}
+          {' · '}
+          <b>{money(currentAlarmOrder.total)}</b>
+          {' · '}
+          {new Date(currentAlarmOrder.created_at).toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit' })}
+        </p>
+        {pendingClientOrders.length > 1 && <small>Hay {pendingClientOrders.length} pedidos nuevos pendientes de aceptar.</small>}
+      </div>
+      <div className="admin-order-alarm-actions">
+        <button type="button" className="alarm-view" onClick={() => setTab('orders')}>Ver pedido</button>
+        <button
+          type="button"
+          className="alarm-accept"
+          onClick={() => quickStatus(currentAlarmOrder.order_code, 'accepted')}
+        >
+          ✓ Aceptar pedido
+        </button>
+      </div>
+    </aside>}
     <main className="orders-page admin-pro-page">
       <section className="admin-hero">
         <div>
@@ -4989,7 +5093,16 @@ function DashboardApp() {
           <h1>Casa de Kebab Turco Admin</h1>
           <p>Pedidos en vivo, repartidor, clientes, contabilidad, menú y ventas en una sola pantalla.</p>
         </div>
-        <button className="mini-action" onClick={loadAdminPanel}>Actualizar ahora</button>
+        <div className="admin-hero-actions">
+          <button
+            type="button"
+            className={`mini-action admin-alarm-toggle ${orderAlarmSoundEnabled ? 'enabled' : ''}`}
+            onClick={enableAdminOrderAlarmSound}
+          >
+            {orderAlarmSoundEnabled ? '🔊 Alarma activa' : '🔕 Activar alarma'}
+          </button>
+          <button className="mini-action" onClick={loadAdminPanel}>Actualizar ahora</button>
+        </div>
       </section>
 
       <nav className="admin-tabs">

@@ -3189,3 +3189,43 @@ html[data-admin-language="ar"] .admin-pro-page select{text-align:right}
   .developer-footer-inner{align-items:flex-start;flex-direction:column}
   .developer-link{width:100%}
 }
+
+
+/* v44 Continuous client-order alarm in Admin */
+.admin-hero-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.admin-alarm-toggle{background:#5b2c83!important}
+.admin-alarm-toggle.enabled{background:#147a43!important}
+.admin-order-alarm{
+  position:fixed;z-index:10050;top:96px;left:50%;transform:translateX(-50%);
+  width:min(760px,calc(100vw - 28px));display:grid;grid-template-columns:auto 1fr auto;
+  align-items:center;gap:16px;padding:17px 18px;border:3px solid #ffd25f;border-radius:18px;
+  background:linear-gradient(135deg,#8f1d18,#b3261e);color:#fff;
+  box-shadow:0 18px 55px rgba(75,10,7,.42);animation:adminOrderAlarmPulse .85s infinite
+}
+.admin-order-alarm-icon{font-size:38px;animation:adminOrderBellShake .65s infinite}
+.admin-order-alarm-copy h2{margin:2px 0 4px;color:#fff;font-size:23px}
+.admin-order-alarm-copy p{margin:0;color:#fff}
+.admin-order-alarm-copy small{display:block;margin-top:5px;color:#fff3c7;font-weight:700}
+.admin-order-alarm-kicker{display:block;font-size:11px;font-weight:900;letter-spacing:.08em;color:#ffe5a0}
+.admin-order-alarm-actions{display:grid;gap:8px;min-width:145px}
+.admin-order-alarm-actions button{border:0;border-radius:10px;padding:10px 12px;font-weight:900;cursor:pointer}
+.alarm-view{background:#fff;color:#7f1d17}
+.alarm-accept{background:#1b873f;color:#fff}
+@keyframes adminOrderAlarmPulse{
+  0%,100%{box-shadow:0 18px 55px rgba(75,10,7,.42);filter:brightness(1)}
+  50%{box-shadow:0 18px 65px rgba(179,38,30,.65);filter:brightness(1.16)}
+}
+@keyframes adminOrderBellShake{
+  0%,100%{transform:rotate(0)}
+  20%{transform:rotate(14deg)}
+  40%{transform:rotate(-14deg)}
+  60%{transform:rotate(10deg)}
+  80%{transform:rotate(-10deg)}
+}
+@media(max-width:720px){
+  .admin-order-alarm{top:76px;grid-template-columns:auto 1fr;gap:10px;padding:13px}
+  .admin-order-alarm-actions{grid-column:1 / -1;grid-template-columns:1fr 1fr}
+  .admin-hero-actions{width:100%}
+  .admin-hero-actions .mini-action{flex:1}
+}
+
